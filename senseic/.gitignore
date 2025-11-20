@@ -6,3 +6,4 @@
 /PLAN.md
 .DS_Store
 **/proptest-regressions/
+**/*.pending-snap

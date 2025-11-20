@@ -45,7 +45,7 @@ module.exports = grammar({
     _expr_no_block: $ => choice(
       $.fn_call,
       $.binary_expr,
-      $._paren_expr,
+      $.paren_expr,
       $.member,
       $.type_def,
       $._literal,
@@ -75,11 +75,11 @@ module.exports = grammar({
         bin_op_variant(PREC_COMPARATIVE, ["==", "<", "<=", "!=", ">", ">="])
       )
     },
-    _paren_expr: $ => seq("(", $._expr, ")"),
+    paren_expr: $ => seq("(", $._expr, ")"),
     member: $ => seq($._expr, ".", $.identifier),
     _stmt: $ => choice(seq(choice($.const_item, $._expr_no_block, $.return, $.assign, $.let), ";"), seq($.block, optional(";"))),
     return: $ => seq("return", $._expr),
-    let: $ => seq("let", optional("mut"), $.identifier, "=", $._expr),
+    let: $ => seq("let", optional("mut"), $.identifier, optional(seq(":", $.type_expr)), "=", $._expr),
     assign: $ => seq($.name_path, "=", $._expr),
     cond_stmt: $ => seq(
       "if",
@@ -88,19 +88,21 @@ module.exports = grammar({
       repeat(seq("else", "if", $._expr, $.block)),
       optional(seq("else", $.block))
     ),
-    struct_lit: $ => seq($.name_path, "{", commaSeparated($.struct_lit_field), "}"),
+    struct_lit: $ => seq($.name_path, $.struct_lit_fields),
+    struct_lit_fields: $ => seq("{", commaSeparated($.struct_lit_field), "}"),
     struct_lit_field: $ => seq($.identifier, ":", $._expr),
 
     type_def: $ => choice($.fn_def, $.struct_def),
-    fn_def: $ => seq("fn", "(", commaSeparated($.typed_item_def), ")", $.type_expr, $.block),
+    fn_def: $ => seq("fn", $.fn_def_params, $.type_expr, $.block),
+    fn_def_params: $ => seq("(", commaSeparated($.typed_item_def), ")"),
     struct_def: $ => seq("struct", "{", commaSeparated($.typed_item_def), "}"),
     typed_item_def: $ => seq($.identifier, ":", $.type_expr),
 
     _literal: $ => choice($.bool_literal, $.hex_literal, $.bin_literal, $.dec_literal),
     bool_literal: (_) => choice("true", "false"),
-    hex_literal: (_) => /0x[0-9A-Fa-f][0-9A-Fa-f_]*/,
-    bin_literal: (_) => /0b[01][01_]*/,
-    dec_literal: (_) => /[0-9][0-9_]*/,
+    hex_literal: (_) => /-?0x[0-9A-Fa-f][0-9A-Fa-f_]*/,
+    bin_literal: (_) => /-?0b[01][01_]*/,
+    dec_literal: (_) => /-?[0-9][0-9_]*/,
 
     name_path: $ => seq($.identifier, repeat(seq(".", $.identifier))),
     line_comment: (_) => /\/\/[^\n]*/,
@@ -120,3 +122,4 @@ module.exports = grammar({
 function commaSeparated(rule) {
   return optional(seq(rule, repeat(seq(",", rule)), optional(",")));
 }
+

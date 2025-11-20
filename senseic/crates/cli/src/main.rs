@@ -1,5 +1,5 @@
 use bumpalo::Bump;
-use neosen_parser::parse_stuff;
+use neosen_parser::parse_via_tree_sitter;
 
 fn main() {
     let mut args = std::env::args();
@@ -11,5 +11,5 @@ fn main() {
     let source = std::fs::read_to_string(&file_path).expect("Failed to read file");
 
     let arena = Bump::with_capacity(8000);
-    let ast = parse_stuff(&source, &arena);
+    let ast = parse_via_tree_sitter(&source, &arena);
 }

@@ -70,3 +70,5 @@ See `lexer.rs:10-118` for the complete token set. The lexer:
 - Handles line comments (`//`) and nested multiline comments (`/* */`)
 - Has diagnostic tokens for common errors (e.g., `ErrorBadNumericLiteral`)
 - Returns token type + span for each token
+- Avoid comments that are redundant, or reference documentation/outside information that may change
+- You are a professional developer, make sure your code is left in a clean state for others

@@ -16,14 +16,19 @@ impl<'arena> FrozenBigUint<'arena> {
     }
 
     /// # Panics
-    /// Panics if `s` doesn't match \[0-9A-Fa-f]+\
+    /// Panics if `s` doesn't match \[0-9A-Fa-f_]+\
     pub fn from_radix16_in(s: &str, arena: &'arena Bump) -> Self {
         assert!(!s.is_empty());
 
-        let s = s.as_bytes();
-        let limbs = arena.alloc_slice_fill_copy(s.len().div_ceil(NIBBLES_PER_LIMB), 0);
+        let s = {
+            let s = s.as_bytes();
+            let start = s.iter().position(|c| !matches!(*c, b'0' | b'_')).unwrap_or(s.len());
+            &s[start..]
+        };
+        let digits = s.iter().filter(|c| **c != b'_').count();
+        let limbs = arena.alloc_slice_fill_copy(digits.div_ceil(NIBBLES_PER_LIMB), 0);
 
-        for (i, &c) in s.iter().rev().enumerate() {
+        for (i, &c) in s.iter().filter(|c| **c != b'_').rev().enumerate() {
             let limb_index = i / NIBBLES_PER_LIMB;
             let nibble_shift = (i % NIBBLES_PER_LIMB) * NIBBLE_BITS;
             let nibble = match c {
@@ -39,14 +44,19 @@ impl<'arena> FrozenBigUint<'arena> {
     }
 
     /// # Panics
-    /// Panics if `s` doesn't match \[0-1]+\
+    /// Panics if `s` doesn't match \[_01]+\
     pub fn from_radix2_in(s: &str, arena: &'arena Bump) -> Self {
         assert!(!s.is_empty());
 
-        let s = s.as_bytes();
-        let limbs = arena.alloc_slice_fill_copy(s.len().div_ceil(u32::BITS as usize), 0);
+        let s = {
+            let s = s.as_bytes();
+            let start = s.iter().position(|c| !matches!(*c, b'0' | b'_')).unwrap_or(s.len());
+            &s[start..]
+        };
+        let digits = s.iter().filter(|c| **c != b'_').count();
+        let limbs = arena.alloc_slice_fill_copy(digits.div_ceil(u32::BITS as usize), 0);
 
-        for (i, &c) in s.iter().rev().enumerate() {
+        for (i, &c) in s.iter().filter(|c| **c != b'_').rev().enumerate() {
             let limb_index = i / BITS_PER_LIMB;
             let shift = i % BITS_PER_LIMB;
             let bit = match c {
@@ -60,16 +70,22 @@ impl<'arena> FrozenBigUint<'arena> {
         Self(limbs)
     }
 
+    const LOG10_BASE2_MUL_1000: usize = 3222;
+
     /// # Panics
-    /// Panics if `s` doesn't match \[0-9]+\
+    /// Panics if `s` doesn't match \[_0-9]+\
     pub fn from_radix10_in(s: &str, arena: &'arena Bump) -> Self {
         assert!(!s.is_empty());
 
-        let s = s.as_bytes();
-        let limb_count = (s.len() * 3322).div_ceil(1000 * BITS_PER_LIMB);
+        let s = {
+            let s = s.as_bytes();
+            let start = s.iter().position(|c| !matches!(*c, b'0' | b'_')).unwrap_or(s.len());
+            &s[start..]
+        };
+        let limb_count = (s.len() * Self::LOG10_BASE2_MUL_1000).div_ceil(1000 * BITS_PER_LIMB);
         let mut new = Self(arena.alloc_slice_fill_copy(limb_count, 0));
 
-        for &c in s {
+        for &c in s.iter().filter(|c| **c != b'_') {
             let dig = match c {
                 b'0'..=b'9' => c - b'0',
                 _ => unreachable!("invalid char byte {}", c),
@@ -165,6 +181,22 @@ mod tests {
     }
 
     #[test]
+    fn test_hex_roundtrip_underscore() {
+        let arena = Bump::with_capacity(256);
+
+        assert_eq!(
+            format!(
+                "{:x}",
+                FrozenBigUint::from_radix16_in(
+                    "4eeb8567ad_496f244c24c274bb1c2f12e4b32f9_33bab58a4_56cb5a5864dc58d",
+                    &arena
+                )
+            ),
+            "4eeb8567ad496f244c24c274bb1c2f12e4b32f933bab58a456cb5a5864dc58d"
+        );
+    }
+
+    #[test]
     fn test_decimal() {
         let arena = Bump::with_capacity(256);
         assert_eq!(
@@ -180,12 +212,42 @@ mod tests {
     }
 
     #[test]
+    fn test_decimal_underscore() {
+        let arena = Bump::with_capacity(256);
+        assert_eq!(
+            format!(
+                "{:x}",
+                FrozenBigUint::from_radix10_in(
+                    "_1155113_1923537031196___22322190_288124_313895465211404437846",
+                    &arena
+                )
+            ),
+            "c0f5884d2216eeaea6a190458b0051664ebc6d93f4956"
+        );
+    }
+
+    #[test]
     fn test_binary() {
         let arena = Bump::with_capacity(256);
         assert_eq!(
             format!(
                 "{:x}",
                 FrozenBigUint::from_radix2_in("0010101000000001001111111110101110", &arena)
+            ),
+            "a804ffae"
+        );
+    }
+
+    #[test]
+    fn test_binary_underscore() {
+        let arena = Bump::with_capacity(256);
+        assert_eq!(
+            format!(
+                "{:x}",
+                FrozenBigUint::from_radix2_in(
+                    "00101_0100000_0001001___1_1__111111010_1110",
+                    &arena
+                )
             ),
             "a804ffae"
         );

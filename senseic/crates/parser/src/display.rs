@@ -200,7 +200,7 @@ impl<'ast> DisplayContext<'ast> {
                 self.with_indent(1, |ctx| {
                     ctx.write_indent(f)?;
                     write!(f, "(target ")?;
-                    ctx.fmt_assign_target(f, &assign.target)?;
+                    ctx.fmt_name_path(f, &assign.target)?;
                     writeln!(f, ")")?;
                     ctx.write_indent(f)?;
                     writeln!(f, "(value")?;
@@ -295,27 +295,6 @@ impl<'ast> DisplayContext<'ast> {
                     writeln!(f, ")")?;
                     Ok(())
                 })?;
-                self.write_indent(f)?;
-                write!(f, ")")
-            }
-        }
-    }
-
-    fn fmt_assign_target(
-        &mut self,
-        f: &mut fmt::Formatter<'_>,
-        target: &AssignTarget<'ast>,
-    ) -> fmt::Result {
-        match target {
-            AssignTarget::Ident(istr) => write!(f, "{:?}", self.lookup(*istr)),
-            AssignTarget::Member(member) => {
-                write!(f, "(member {:?}", self.lookup(member.ident))?;
-                writeln!(f)?;
-                self.with_indent(1, |ctx| {
-                    ctx.write_indent(f)?;
-                    ctx.fmt_expr(f, member.expr)
-                })?;
-                writeln!(f)?;
                 self.write_indent(f)?;
                 write!(f, ")")
             }
@@ -447,8 +426,6 @@ impl<'ast> DisplayContext<'ast> {
                         ctx.write_indent(f)?;
                         writeln!(f, ")")?;
                     }
-                    // For Expr::Conditional, else_body is MaybeOr<Block, Infallible>
-                    // Since Infallible can't be constructed, it's always Just(block)
                     match &cond.else_body {
                         MaybeOr::Just(else_body) => {
                             ctx.write_indent(f)?;
@@ -654,9 +631,11 @@ impl<'ast> DisplayContext<'ast> {
 
     fn fmt_name_path(&self, f: &mut fmt::Formatter<'_>, name_path: &NamePath) -> fmt::Result {
         write!(f, "(name-path")?;
-        for segment in name_path.path_segments.iter() {
+        let name_path = &name_path.0;
+        let last_member_index = name_path.len() - 1;
+        for segment in &name_path[..last_member_index] {
             write!(f, " {:?}", self.lookup(*segment))?;
         }
-        write!(f, " {:?})", self.lookup(name_path.final_member))
+        write!(f, " {:?})", self.lookup(name_path[last_member_index]))
     }
 }

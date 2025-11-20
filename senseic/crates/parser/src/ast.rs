@@ -37,7 +37,7 @@ pub struct ConstDef<'ast> {
 pub enum Statement<'ast> {
     Let(AstBox<'ast, LetStmt<'ast>>),
     Return(Expr<'ast>),
-    Assign(AssignStmt<'ast>),
+    Assign(AstBox<'ast, AssignStmt<'ast>>),
     Block(Block<'ast>),
     Conditional(AstBox<'ast, Conditional<'ast, ()>>),
     Expr(Expr<'ast>),
@@ -52,7 +52,7 @@ pub struct LetStmt<'ast> {
 }
 
 pub struct AssignStmt<'ast> {
-    pub target: AssignTarget<'ast>,
+    pub target: NamePath<'ast>,
     pub op: AssignOp,
     pub value: Expr<'ast>,
 }
@@ -103,19 +103,16 @@ pub struct StructLiteral<'ast> {
     pub fields: AstBox<'ast, [FieldInit<'ast>]>,
 }
 
-pub struct NamePath<'ast> {
-    pub path_segments: AstBox<'ast, [IStr]>,
-    pub final_member: IStr,
-}
+pub struct NamePath<'ast>(pub AstBox<'ast, [IStr]>);
 
 const _AST_SIZE: () = const {
     const_assert_eq(std::mem::size_of::<Expr<'_>>(), 32);
-    const_assert_eq(std::mem::size_of::<LetStmt<'_>>(), 72);
+    const_assert_eq(std::mem::size_of::<LetStmt<'_>>(), 64);
     const_assert_eq(std::mem::size_of::<AssignStmt<'_>>(), 48);
-    const_assert_eq(std::mem::size_of::<ConstDef<'_>>(), 72);
+    const_assert_eq(std::mem::size_of::<ConstDef<'_>>(), 64);
 
-    const_assert_eq(std::mem::size_of::<Statement<'_>>(), 48);
-    const_assert_eq(std::mem::size_of::<TypeExpr<'_>>(), 32);
+    const_assert_eq(std::mem::size_of::<Statement<'_>>(), 40);
+    const_assert_eq(std::mem::size_of::<TypeExpr<'_>>(), 24);
     const_assert_eq(std::mem::size_of::<Block<'_>>(), 24);
     const_assert_eq(std::mem::size_of::<IntLiteral<'_>>(), 24);
     const_assert_eq(std::mem::size_of::<IStr>(), 4);

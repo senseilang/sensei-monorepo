@@ -48,6 +48,10 @@
           "named": true
         },
         {
+          "type": "paren_expr",
+          "named": true
+        },
+        {
           "type": "struct_lit",
           "named": true
         },
@@ -63,17 +67,9 @@
     "named": true,
     "fields": {
       "lhs": {
-        "multiple": true,
+        "multiple": false,
         "required": true,
         "types": [
-          {
-            "type": "(",
-            "named": false
-          },
-          {
-            "type": ")",
-            "named": false
-          },
           {
             "type": "bin_literal",
             "named": true
@@ -108,6 +104,10 @@
           },
           {
             "type": "member",
+            "named": true
+          },
+          {
+            "type": "paren_expr",
             "named": true
           },
           {
@@ -195,17 +195,9 @@
         ]
       },
       "rhs": {
-        "multiple": true,
+        "multiple": false,
         "required": true,
         "types": [
-          {
-            "type": "(",
-            "named": false
-          },
-          {
-            "type": ")",
-            "named": false
-          },
           {
             "type": "bin_literal",
             "named": true
@@ -240,6 +232,10 @@
           },
           {
             "type": "member",
+            "named": true
+          },
+          {
+            "type": "paren_expr",
             "named": true
           },
           {
@@ -259,17 +255,9 @@
     "named": true,
     "fields": {
       "last_expr": {
-        "multiple": true,
+        "multiple": false,
         "required": false,
         "types": [
-          {
-            "type": "(",
-            "named": false
-          },
-          {
-            "type": ")",
-            "named": false
-          },
           {
             "type": "bin_literal",
             "named": true
@@ -307,6 +295,10 @@
             "named": true
           },
           {
+            "type": "paren_expr",
+            "named": true
+          },
+          {
             "type": "struct_lit",
             "named": true
           },
@@ -320,14 +312,6 @@
         "multiple": true,
         "required": false,
         "types": [
-          {
-            "type": "(",
-            "named": false
-          },
-          {
-            "type": ")",
-            "named": false
-          },
           {
             "type": ";",
             "named": false
@@ -378,6 +362,10 @@
           },
           {
             "type": "member",
+            "named": true
+          },
+          {
+            "type": "paren_expr",
             "named": true
           },
           {
@@ -446,6 +434,10 @@
           "named": true
         },
         {
+          "type": "paren_expr",
+          "named": true
+        },
+        {
           "type": "struct_lit",
           "named": true
         },
@@ -465,17 +457,9 @@
     "named": true,
     "fields": {
       "fn": {
-        "multiple": true,
+        "multiple": false,
         "required": true,
         "types": [
-          {
-            "type": "(",
-            "named": false
-          },
-          {
-            "type": ")",
-            "named": false
-          },
           {
             "type": "bin_literal",
             "named": true
@@ -513,6 +497,10 @@
             "named": true
           },
           {
+            "type": "paren_expr",
+            "named": true
+          },
+          {
             "type": "struct_lit",
             "named": true
           },
@@ -526,14 +514,6 @@
         "multiple": true,
         "required": false,
         "types": [
-          {
-            "type": "(",
-            "named": false
-          },
-          {
-            "type": ")",
-            "named": false
-          },
           {
             "type": ",",
             "named": false
@@ -575,6 +555,10 @@
             "named": true
           },
           {
+            "type": "paren_expr",
+            "named": true
+          },
+          {
             "type": "struct_lit",
             "named": true
           },
@@ -599,9 +583,24 @@
           "named": true
         },
         {
-          "type": "type_expr",
+          "type": "fn_def_params",
           "named": true
         },
+        {
+          "type": "type_expr",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "fn_def_params",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
         {
           "type": "typed_item_def",
           "named": true
@@ -669,11 +668,19 @@
           "named": true
         },
         {
+          "type": "paren_expr",
+          "named": true
+        },
+        {
           "type": "struct_lit",
           "named": true
         },
         {
           "type": "type_def",
+          "named": true
+        },
+        {
+          "type": "type_expr",
           "named": true
         }
       ]
@@ -724,6 +731,10 @@
           "named": true
         },
         {
+          "type": "paren_expr",
+          "named": true
+        },
+        {
           "type": "struct_lit",
           "named": true
         },
@@ -744,6 +755,65 @@
       "types": [
         {
           "type": "identifier",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "paren_expr",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "bin_literal",
+          "named": true
+        },
+        {
+          "type": "binary_expr",
+          "named": true
+        },
+        {
+          "type": "block",
+          "named": true
+        },
+        {
+          "type": "bool_literal",
+          "named": true
+        },
+        {
+          "type": "dec_literal",
+          "named": true
+        },
+        {
+          "type": "fn_call",
+          "named": true
+        },
+        {
+          "type": "hex_literal",
+          "named": true
+        },
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "member",
+          "named": true
+        },
+        {
+          "type": "paren_expr",
+          "named": true
+        },
+        {
+          "type": "struct_lit",
+          "named": true
+        },
+        {
+          "type": "type_def",
           "named": true
         }
       ]
@@ -791,6 +861,10 @@
         },
         {
           "type": "member",
+          "named": true
+        },
+        {
+          "type": "paren_expr",
           "named": true
         },
         {
@@ -871,7 +945,7 @@
           "named": true
         },
         {
-          "type": "struct_lit_field",
+          "type": "struct_lit_fields",
           "named": true
         }
       ]
@@ -922,11 +996,30 @@
           "named": true
         },
         {
+          "type": "paren_expr",
+          "named": true
+        },
+        {
           "type": "struct_lit",
           "named": true
         },
         {
           "type": "type_def",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "struct_lit_fields",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "struct_lit_field",
           "named": true
         }
       ]
