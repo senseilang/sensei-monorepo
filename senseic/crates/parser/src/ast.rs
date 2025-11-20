@@ -6,8 +6,6 @@ use bumpalo::Bump;
 use inturn::Interner;
 use neosen_data::{Span, X32, bigint::FrozenBigUint};
 
-type HashMap<K, V, A> = hashbrown::HashMap<K, V, hashbrown::DefaultHashBuilder, A>;
-
 pub struct InternedString;
 pub type IStr = X32<InternedString>;
 pub type StringInterner = Interner<IStr>;

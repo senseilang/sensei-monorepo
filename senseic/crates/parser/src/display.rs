@@ -45,10 +45,6 @@ impl<'ast> DisplayContext<'ast> {
         self.interner.resolve(istr)
     }
 
-    fn fmt_span(&self, f: &mut fmt::Formatter<'_>, span: &neosen_data::Span<u32>) -> fmt::Result {
-        write!(f, "[{}..{}]", span.start, span.end)
-    }
-
     fn fmt_ast(&mut self, f: &mut fmt::Formatter<'_>, ast: &Ast<'ast>) -> fmt::Result {
         if ast.declarations.is_empty() {
             write!(f, "(ast)")
