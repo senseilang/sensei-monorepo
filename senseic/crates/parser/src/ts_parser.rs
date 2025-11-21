@@ -67,22 +67,17 @@ impl<'tree> Cursor<'tree> {
     }
 }
 
-fn check_no_error<'tree>(node: Node<'tree>, cursor: &mut Cursor<'tree>) {
+fn check_no_error<'tree>(cursor: &mut Cursor<'tree>, node: Node<'tree>) {
     let start = node.start_position();
     let line = start.row + 1;
     let column = start.column + 1;
     assert!(!node.is_error(), "found error node L{}:{}", line, column);
     assert!(!node.is_missing(), "found missing {:?} L{}:{}", node.kind(), line, column);
-    let children = node.child_count();
-    if children == 0 {
-        return;
-    }
 
+    let children = node.child_count();
     cursor.enter_current_node(|cursor| {
         for _ in 0..children {
-            cursor.with_next(|cursor, child| {
-                check_no_error(child, cursor);
-            })
+            cursor.with_next(check_no_error)
         }
     });
 }
@@ -101,7 +96,7 @@ pub fn parse_via_tree_sitter<'src, 'ast>(
     let root = tree.root_node();
     println!("root: {:?}", root.to_sexp());
     let mut cursor = Cursor(root.walk());
-    check_no_error(root, &mut cursor);
+    check_no_error(&mut cursor, root);
     let ast = convert_root_to_ast(root, source, arena, &mut cursor, &mut interner);
 
     (ast, interner)
