@@ -67,17 +67,40 @@ impl<'tree> Cursor<'tree> {
     }
 }
 
-fn check_no_error<'tree>(cursor: &mut Cursor<'tree>, node: Node<'tree>) {
-    let start = node.start_position();
-    let line = start.row + 1;
-    let column = start.column + 1;
-    assert!(!node.is_error(), "found error node L{}:{}", line, column);
-    assert!(!node.is_missing(), "found missing {:?} L{}:{}", node.kind(), line, column);
+#[derive(Debug, Clone)]
+pub struct ParseError {
+    kind: ParseErrorKind,
+    span: SourceSpan,
+}
+
+#[derive(Debug, Clone)]
+pub enum ParseErrorKind {
+    InvalidSyntax,
+    Missing(Box<str>),
+}
+
+fn check_ts_tree<'tree, E>(emit_error: &mut E, cursor: &mut Cursor<'tree>, node: Node<'tree>)
+where
+    E: FnMut(ParseError),
+{
+    let range = node.byte_range();
+    if node.is_error() {
+        emit_error(ParseError {
+            kind: ParseErrorKind::InvalidSyntax,
+            span: SourceSpan::new(range.start as u32, range.end as u32),
+        });
+    }
+    if node.is_missing() {
+        emit_error(ParseError {
+            kind: ParseErrorKind::Missing(node.kind().into()),
+            span: SourceSpan::new(range.start as u32, range.end as u32),
+        });
+    }
 
     let children = node.child_count();
     cursor.enter_current_node(|cursor| {
         for _ in 0..children {
-            cursor.with_next(check_no_error)
+            cursor.with_next(|cursor, node| check_ts_tree(emit_error, cursor, node))
         }
     });
 }
@@ -85,21 +108,32 @@ fn check_no_error<'tree>(cursor: &mut Cursor<'tree>, node: Node<'tree>) {
 pub fn parse_via_tree_sitter<'src, 'ast>(
     source: &'src str,
     arena: &'ast Bump,
-) -> (Ast<'ast>, StringInterner) {
+) -> Result<(Ast<'ast>, StringInterner), Vec<ParseError, &'ast Bump>> {
     let mut interner = StringInterner::with_capacity_and_hasher(256, Default::default());
     let mut parser = Parser::new();
 
     let language = tree_sitter_sensei::LANGUAGE.into();
     parser.set_language(&language).expect("Error loading sensei tree-sitter language");
 
-    let tree = parser.parse(source, None).expect("parsing failed");
+    let tree = parser.parse(source, None).expect("tree-sitter parsing failed");
     let root = tree.root_node();
-    println!("root: {:?}", root.to_sexp());
+    println!("root.to_sexp(): {}", root.to_sexp());
     let mut cursor = Cursor(root.walk());
-    check_no_error(&mut cursor, root);
+
+    let mut errors = Vec::with_capacity_in(8, arena);
+    let mut emit_error = |err| {
+        errors.push(err);
+    };
+
+    check_ts_tree(&mut emit_error, &mut cursor, root);
+
+    if !errors.is_empty() {
+        return Err(errors);
+    }
+
     let ast = convert_root_to_ast(root, source, arena, &mut cursor, &mut interner);
 
-    (ast, interner)
+    Ok((ast, interner))
 }
 
 fn convert_root_to_ast<'tree, 'src, 'ast>(
@@ -134,10 +168,21 @@ fn convert_decl<'tree, 'src, 'ast>(
     }
 
     Some(match declaration.kind() {
-        "const_item" => {
-            let const_def = convert_const_item(cursor, source, arena, interner);
-            Declaration::ConstDef(const_def)
-        }
+        "const_def" => cursor.enter_current_node(|cursor| {
+            let is_public = cursor.node().kind() == "export";
+            if is_public {
+                cursor.goto_next_sibling();
+            }
+            let const_def = cursor
+                .enter_current_node(|cursor| convert_const_item(cursor, source, arena, interner));
+            cursor.next_expect("const_item");
+            cursor.skip_unnamed(";");
+            if is_public {
+                Declaration::PublicConstDef(const_def)
+            } else {
+                Declaration::ConstDef(const_def)
+            }
+        }),
         "run" => Declaration::Run(cursor.enter_current_node(|cursor| {
             cursor.skip_unnamed("run");
             let block = cursor.next_expect("block");
@@ -148,8 +193,42 @@ fn convert_decl<'tree, 'src, 'ast>(
             let block = cursor.next_expect("block");
             convert_block(block, cursor, source, arena, interner)
         })),
+        "import" => Declaration::Import(convert_import(cursor, source, arena, interner)),
         kind => panic!("unexpected declaration kind: {:?}", kind),
     })
+}
+
+fn convert_import<'tree, 'src, 'ast>(
+    cursor: &mut Cursor<'tree>,
+    source: &'src str,
+    arena: &'ast Bump,
+    interner: &mut StringInterner,
+) -> Import<'ast> {
+    let import = cursor.node();
+    let kind = import.child_by_field_name("kind").expect("missing 'kind' field");
+
+    let kind = match kind.kind() {
+        "import_all" => match kind.child_by_field_name("as") {
+            Some(ident) => ImportKind::As(interner.intern(&source[ident.byte_range()])),
+            None => ImportKind::All,
+        },
+        "import_select" => {
+            let mut selected = SmallVec::<[IStr; 32]>::new();
+            let mut fresh_cursor = kind.walk();
+            for selection in kind.children_by_field_name("selection", &mut fresh_cursor) {
+                selected.push(interner.intern(&source[selection.byte_range()]));
+            }
+            ImportKind::Selction(arena.alloc(selected))
+        }
+        kind => unreachable!("unexpected import kind {kind:?}"),
+    };
+
+    let path = import.child_by_field_name("path").expect("missing 'path' field");
+    let start = path.start_byte() + 1;
+    let end = path.end_byte() - 1;
+    let path = &source[start..end];
+
+    Import { kind, path: arena.alloc_str(path) }
 }
 
 fn convert_const_item<'tree, 'src, 'ast>(
@@ -559,7 +638,6 @@ fn convert_fn_def<'tree, 'src, 'ast>(
         cursor.skip_unnamed("fn");
 
         let mut params = SmallVec::<[ParamDef<'ast>; 8]>::new();
-        println!("cursor.node.kind(): {:?}", cursor.node().kind());
         cursor.enter_current_node(|cursor| {
             while cursor.goto_next_sibling() {
                 if !cursor.node().is_named() {
@@ -696,7 +774,7 @@ mod tests {
     // Helper to parse and return AST display string (leaks memory for test simplicity)
     fn parse_to_string(source: &str) -> String {
         let arena = Box::leak(Box::new(Bump::new()));
-        let (ast, interner) = parse_via_tree_sitter(source, arena);
+        let (ast, interner) = parse_via_tree_sitter(source, arena).expect("parser had errors");
         // Leak the AST and interner to get 'static references
         let ast_ref: &'static Ast<'static> =
             Box::leak(Box::new(unsafe { std::mem::transmute(ast) }));
@@ -748,7 +826,7 @@ mod tests {
     fn test_const_def() {
         insta::assert_snapshot!(parse_to_string("const FOO = 123;"), @r#"
         (ast
-          (const-def "FOO"
+          (private-const-def "FOO"
             (value
               (int 0x7b)
             )
@@ -761,7 +839,7 @@ mod tests {
     fn test_const_with_type() {
         insta::assert_snapshot!(parse_to_string("const BAR: u256 = 456;"), @r#"
         (ast
-          (const-def "BAR"
+          (private-const-def "BAR"
             (type
               (name-path "u256")
             )
@@ -844,7 +922,7 @@ mod tests {
     fn test_struct_def() {
         insta::assert_snapshot!(parse_to_string("const Point = struct { x: u256, y: u256 };"), @r#"
         (ast
-          (const-def "Point"
+          (private-const-def "Point"
             (value
               (type-expr
                 (struct-def
@@ -868,7 +946,7 @@ mod tests {
     fn test_struct_def_trailing() {
         insta::assert_snapshot!(parse_to_string("const Point = struct { x: u256, y: u256, };"), @r#"
         (ast
-          (const-def "Point"
+          (private-const-def "Point"
             (value
               (type-expr
                 (struct-def
@@ -892,7 +970,7 @@ mod tests {
     fn test_fn_def() {
         insta::assert_snapshot!(parse_to_string("const add = fn (a: u256, b: u256) u256 { a + b };"), @r#"
         (ast
-          (const-def "add"
+          (private-const-def "add"
             (value
               (type-expr
                 (fn-def
@@ -981,7 +1059,7 @@ mod tests {
     fn test_hex_literal() {
         insta::assert_snapshot!(parse_to_string("const X = 0xDEADBEEF;"), @r#"
         (ast
-          (const-def "X"
+          (private-const-def "X"
             (value
               (int 0xdeadbeef)
             )
@@ -994,7 +1072,7 @@ mod tests {
     fn test_binary_literal() {
         insta::assert_snapshot!(parse_to_string("const B = 0b1010;"), @r#"
         (ast
-          (const-def "B"
+          (private-const-def "B"
             (value
               (int 0xa)
             )
@@ -1007,7 +1085,7 @@ mod tests {
     fn test_fn_empty_params() {
         insta::assert_snapshot!(parse_to_string("const func = fn () void {};"), @r#"
             (ast
-              (const-def "func"
+              (private-const-def "func"
                 (value
                   (type-expr
                     (fn-def
@@ -1029,7 +1107,7 @@ mod tests {
     fn test_fn_params_no_trailing() {
         insta::assert_snapshot!(parse_to_string("const func = fn (x: u256, y: u256) void {};"), @r#"
             (ast
-              (const-def "func"
+              (private-const-def "func"
                 (value
                   (type-expr
                     (fn-def
@@ -1058,7 +1136,7 @@ mod tests {
     fn test_fn_params_trailing_comma() {
         insta::assert_snapshot!(parse_to_string("const func = fn (y: u256, x: u256,) void {};"), @r#"
             (ast
-              (const-def "func"
+              (private-const-def "func"
                 (value
                   (type-expr
                     (fn-def
@@ -1087,7 +1165,7 @@ mod tests {
     fn test_fn_params_trailing_comma_standalone() {
         insta::assert_snapshot!(parse_to_string("const func = fn (y: u256,) void {};"), @r#"
             (ast
-              (const-def "func"
+              (private-const-def "func"
                 (value
                   (type-expr
                     (fn-def
@@ -1113,7 +1191,7 @@ mod tests {
     fn test_return_statement() {
         insta::assert_snapshot!(parse_to_string("const func = fn () u256 { return 42; };"), @r#"
         (ast
-          (const-def "func"
+          (private-const-def "func"
             (value
               (type-expr
                 (fn-def
@@ -1187,7 +1265,7 @@ mod tests {
     fn test_trailing_expression() {
         insta::assert_snapshot!(parse_to_string("const f = fn () u256 { 123 };"), @r#"
         (ast
-          (const-def "f"
+          (private-const-def "f"
             (value
               (type-expr
                 (fn-def
@@ -1321,7 +1399,7 @@ mod tests {
     fn test_name_path() {
         insta::assert_snapshot!(parse_to_string("const T: module.Type = 0;"), @r#"
         (ast
-          (const-def "T"
+          (private-const-def "T"
             (type
               (name-path "module" "Type")
             )

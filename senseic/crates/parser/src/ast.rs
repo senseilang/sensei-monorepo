@@ -11,29 +11,49 @@ pub type IStr = X32<InternedString>;
 pub type StringInterner = Interner<IStr>;
 pub type AstBox<'ast, T> = &'ast mut T;
 
+#[derive(Debug)]
 pub struct Ast<'ast> {
     pub declarations: Vec<Declaration<'ast>, &'ast Bump>,
 }
 
-type SourceSpan = Span<u32>;
+pub type SourceSpan = Span<u32>;
 
+#[derive(Debug)]
 pub enum Declaration<'ast> {
     Init(Block<'ast>),
     Run(Block<'ast>),
     ConstDef(ConstDef<'ast>),
+    PublicConstDef(ConstDef<'ast>),
+    Import(Import<'ast>),
 }
 
+#[derive(Debug)]
+pub struct Import<'ast> {
+    pub kind: ImportKind<'ast>,
+    pub path: AstBox<'ast, str>,
+}
+
+#[derive(Debug)]
+pub enum ImportKind<'ast> {
+    All,
+    As(IStr),
+    Selction(AstBox<'ast, [IStr]>),
+}
+
+#[derive(Debug)]
 pub struct Block<'ast> {
     pub statements: AstBox<'ast, [Statement<'ast>]>,
     pub last_expr: Option<AstBox<'ast, Expr<'ast>>>,
 }
 
+#[derive(Debug)]
 pub struct ConstDef<'ast> {
     pub ident: IStr,
     pub r#type: Option<TypeExpr<'ast>>,
     pub expr: Expr<'ast>,
 }
 
+#[derive(Debug)]
 pub enum Statement<'ast> {
     Let(AstBox<'ast, LetStmt<'ast>>),
     Return(Expr<'ast>),
@@ -44,6 +64,7 @@ pub enum Statement<'ast> {
     ConstDef(AstBox<'ast, ConstDef<'ast>>),
 }
 
+#[derive(Debug)]
 pub struct LetStmt<'ast> {
     pub mutable: bool,
     pub ident: IStr,
@@ -51,58 +72,69 @@ pub struct LetStmt<'ast> {
     pub value: Expr<'ast>,
 }
 
+#[derive(Debug)]
 pub struct AssignStmt<'ast> {
     pub target: NamePath<'ast>,
     pub op: AssignOp,
     pub value: Expr<'ast>,
 }
 
+#[derive(Debug)]
 pub enum AssignTarget<'ast> {
     Ident(IStr),
     Member(Member<'ast>),
 }
 
+#[derive(Debug)]
 pub struct IntLiteral<'ast> {
     pub positive: bool,
     pub num: FrozenBigUint<'ast>,
 }
 
+#[derive(Debug)]
 pub enum TypeExpr<'ast> {
     NamePath(NamePath<'ast>),
     FnDef(AstBox<'ast, FnDef<'ast>>),
     StructDef(StructDef<'ast>),
 }
 
+#[derive(Debug)]
 pub struct FnDef<'ast> {
     pub params: AstBox<'ast, [ParamDef<'ast>]>,
     pub result: TypeExpr<'ast>,
     pub body: Block<'ast>,
 }
 
+#[derive(Debug)]
 pub struct ParamDef<'ast> {
     pub name: IStr,
     pub r#type: TypeExpr<'ast>,
 }
 
+#[derive(Debug)]
 pub struct FieldDef<'ast> {
     pub name: IStr,
     pub r#type: TypeExpr<'ast>,
 }
 
+#[derive(Debug)]
 pub struct StructDef<'ast> {
     pub fields: AstBox<'ast, [FieldDef<'ast>]>,
 }
 
+#[derive(Debug)]
 pub struct FieldInit<'ast> {
     pub name: IStr,
     pub value: Expr<'ast>,
 }
 
+#[derive(Debug)]
 pub struct StructLiteral<'ast> {
     pub type_path: NamePath<'ast>,
     pub fields: AstBox<'ast, [FieldInit<'ast>]>,
 }
 
+#[derive(Debug)]
 pub struct NamePath<'ast>(pub AstBox<'ast, [IStr]>);
 
 const _AST_SIZE: () = const {
@@ -122,6 +154,7 @@ const _AST_SIZE: () = const {
     const_assert_eq(std::mem::size_of::<Conditional<'_, ()>>(), 96);
 };
 
+#[derive(Debug)]
 pub struct Spanned<T> {
     pub span: SourceSpan,
     pub inner: T,
@@ -135,11 +168,13 @@ impl<T> Spanned<T> {
 
 pub type Ident = Spanned<IStr>;
 
+#[derive(Debug)]
 pub struct Member<'ast> {
     pub expr: AstBox<'ast, Expr<'ast>>,
     pub ident: IStr,
 }
 
+#[derive(Debug)]
 pub enum Expr<'ast> {
     TypeExpr(TypeExpr<'ast>),
     Block(Block<'ast>),
@@ -153,34 +188,39 @@ pub enum Expr<'ast> {
     StructLiteral(AstBox<'ast, StructLiteral<'ast>>),
 }
 
+#[derive(Debug)]
 pub struct BinaryExpr<'ast> {
     pub lhs: AstBox<'ast, Expr<'ast>>,
     pub rhs: AstBox<'ast, Expr<'ast>>,
     pub op: BinaryOp,
 }
 
+#[derive(Debug)]
 pub struct FnCall<'ast> {
     pub fn_expr: AstBox<'ast, Expr<'ast>>,
     pub param_exprs: AstBox<'ast, [Expr<'ast>]>,
 }
 
+#[derive(Debug)]
 pub enum MaybeOr<Just, Other> {
     Just(Just),
     Other(Other),
 }
 
+#[derive(Debug)]
 pub struct Conditional<'ast, ElseMissing> {
     pub r#if: IfBranch<'ast>,
     pub else_ifs: AstBox<'ast, [IfBranch<'ast>]>,
     pub else_body: MaybeOr<Block<'ast>, ElseMissing>,
 }
 
+#[derive(Debug)]
 pub struct IfBranch<'ast> {
     pub condition: Expr<'ast>,
     pub body: Block<'ast>,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub enum BinaryOp {
     // Arithmetic
     AddWrap,
@@ -201,6 +241,7 @@ pub enum BinaryOp {
     EqualEqual,
 }
 
+#[derive(Debug)]
 pub enum AssignOp {
     Assign,
 }

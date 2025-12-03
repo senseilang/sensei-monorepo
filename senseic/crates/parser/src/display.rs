@@ -3,30 +3,30 @@ use std::fmt::{self, Display};
 use crate::ast::*;
 
 /// Wrapper for displaying an AST in s-expression format with indentation and spans.
-pub struct AstDisplay<'ast> {
-    ast: &'ast Ast<'ast>,
-    interner: &'ast StringInterner,
+pub struct AstDisplay<'b, 'ast> {
+    ast: &'b Ast<'ast>,
+    interner: &'b StringInterner,
 }
 
-impl<'ast, 'src> AstDisplay<'ast> {
-    pub fn new(ast: &'ast Ast<'ast>, interner: &'ast StringInterner) -> Self {
+impl<'b, 'ast> AstDisplay<'b, 'ast> {
+    pub fn new(ast: &'b Ast<'ast>, interner: &'b StringInterner) -> Self {
         Self { ast, interner }
     }
 }
 
-impl<'ast> Display for AstDisplay<'ast> {
+impl<'b, 'ast> Display for AstDisplay<'b, 'ast> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut ctx = DisplayContext { interner: self.interner, indent: 0 };
         ctx.fmt_ast(f, self.ast)
     }
 }
 
-struct DisplayContext<'ast> {
-    interner: &'ast StringInterner,
+struct DisplayContext<'i> {
+    interner: &'i StringInterner,
     indent: usize,
 }
 
-impl<'ast> DisplayContext<'ast> {
+impl<'i> DisplayContext<'i> {
     fn write_indent(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for _ in 0..self.indent {
             write!(f, "  ")?;
@@ -45,7 +45,7 @@ impl<'ast> DisplayContext<'ast> {
         self.interner.resolve(istr)
     }
 
-    fn fmt_ast(&mut self, f: &mut fmt::Formatter<'_>, ast: &Ast<'ast>) -> fmt::Result {
+    fn fmt_ast(&mut self, f: &mut fmt::Formatter<'_>, ast: &Ast<'_>) -> fmt::Result {
         if ast.declarations.is_empty() {
             write!(f, "(ast)")
         } else {
@@ -65,7 +65,7 @@ impl<'ast> DisplayContext<'ast> {
     fn fmt_declaration(
         &mut self,
         f: &mut fmt::Formatter<'_>,
-        decl: &Declaration<'ast>,
+        decl: &Declaration<'_>,
     ) -> fmt::Result {
         match decl {
             Declaration::Init(block) => {
@@ -88,39 +88,70 @@ impl<'ast> DisplayContext<'ast> {
                 self.write_indent(f)?;
                 write!(f, ")")
             }
+            Declaration::PublicConstDef(const_def) => {
+                self.fmt_const_def(f, const_def, "public-const-def")
+            }
             Declaration::ConstDef(const_def) => {
-                write!(f, "(const-def {:?}", self.lookup(const_def.ident))?;
-                writeln!(f)?;
-                self.with_indent(1, |ctx| {
-                    if let Some(ty) = &const_def.r#type {
-                        ctx.write_indent(f)?;
-                        writeln!(f, "(type")?;
-                        ctx.with_indent(1, |ctx| {
-                            ctx.write_indent(f)?;
-                            ctx.fmt_type_expr(f, ty)
-                        })?;
-                        writeln!(f)?;
-                        ctx.write_indent(f)?;
-                        writeln!(f, ")")?;
-                    }
-                    ctx.write_indent(f)?;
-                    writeln!(f, "(value")?;
-                    ctx.with_indent(1, |ctx| {
-                        ctx.write_indent(f)?;
-                        ctx.fmt_expr(f, &const_def.expr)
-                    })?;
-                    writeln!(f)?;
-                    ctx.write_indent(f)?;
-                    writeln!(f, ")")?;
-                    Ok(())
-                })?;
-                self.write_indent(f)?;
+                self.fmt_const_def(f, const_def, "private-const-def")
+            }
+            Declaration::Import(import) => {
+                write!(f, "(import ")?;
+                self.fmt_import_kind(f, &import.kind)?;
+                write!(f, " {:?})", import.path)
+            }
+        }
+    }
+
+    fn fmt_import_kind(&self, f: &mut fmt::Formatter<'_>, kind: &ImportKind<'_>) -> fmt::Result {
+        match kind {
+            ImportKind::All => write!(f, "*"),
+            ImportKind::As(alias) => write!(f, "(as {:?})", self.lookup(*alias)),
+            ImportKind::Selction(items) => {
+                write!(f, "(choice")?;
+                for item in items.iter() {
+                    write!(f, " {:?}", self.lookup(*item))?;
+                }
                 write!(f, ")")
             }
         }
     }
 
-    fn fmt_block(&mut self, f: &mut fmt::Formatter<'_>, block: &Block<'ast>) -> fmt::Result {
+    fn fmt_const_def(
+        &mut self,
+        f: &mut fmt::Formatter<'_>,
+        const_def: &ConstDef<'_>,
+        name: &'static str,
+    ) -> fmt::Result {
+        write!(f, "({} {:?}", name, self.lookup(const_def.ident))?;
+        writeln!(f)?;
+        self.with_indent(1, |ctx| {
+            if let Some(ty) = &const_def.r#type {
+                ctx.write_indent(f)?;
+                writeln!(f, "(type")?;
+                ctx.with_indent(1, |ctx| {
+                    ctx.write_indent(f)?;
+                    ctx.fmt_type_expr(f, ty)
+                })?;
+                writeln!(f)?;
+                ctx.write_indent(f)?;
+                writeln!(f, ")")?;
+            }
+            ctx.write_indent(f)?;
+            writeln!(f, "(value")?;
+            ctx.with_indent(1, |ctx| {
+                ctx.write_indent(f)?;
+                ctx.fmt_expr(f, &const_def.expr)
+            })?;
+            writeln!(f)?;
+            ctx.write_indent(f)?;
+            writeln!(f, ")")?;
+            Ok(())
+        })?;
+        self.write_indent(f)?;
+        write!(f, ")")
+    }
+
+    fn fmt_block(&mut self, f: &mut fmt::Formatter<'_>, block: &Block<'_>) -> fmt::Result {
         if block.statements.is_empty() && block.last_expr.is_none() {
             write!(f, "(block)")
         } else {
@@ -149,7 +180,7 @@ impl<'ast> DisplayContext<'ast> {
         }
     }
 
-    fn fmt_statement(&mut self, f: &mut fmt::Formatter<'_>, stmt: &Statement<'ast>) -> fmt::Result {
+    fn fmt_statement(&mut self, f: &mut fmt::Formatter<'_>, stmt: &Statement<'_>) -> fmt::Result {
         match stmt {
             Statement::Let(let_stmt) => {
                 write!(f, "(let {:?}", self.lookup(let_stmt.ident))?;
@@ -307,7 +338,7 @@ impl<'ast> DisplayContext<'ast> {
         }
     }
 
-    fn fmt_expr(&mut self, f: &mut fmt::Formatter<'_>, expr: &Expr<'ast>) -> fmt::Result {
+    fn fmt_expr(&mut self, f: &mut fmt::Formatter<'_>, expr: &Expr<'_>) -> fmt::Result {
         match expr {
             Expr::TypeExpr(type_expr) => {
                 write!(f, "(type-expr")?;
@@ -483,11 +514,7 @@ impl<'ast> DisplayContext<'ast> {
         }
     }
 
-    fn fmt_if_branch(
-        &mut self,
-        f: &mut fmt::Formatter<'_>,
-        branch: &IfBranch<'ast>,
-    ) -> fmt::Result {
+    fn fmt_if_branch(&mut self, f: &mut fmt::Formatter<'_>, branch: &IfBranch<'_>) -> fmt::Result {
         writeln!(f, "(if-branch")?;
         self.with_indent(1, |ctx| {
             ctx.write_indent(f)?;
@@ -543,7 +570,7 @@ impl<'ast> DisplayContext<'ast> {
         write!(f, "0x{:x}", int_lit.num)
     }
 
-    fn fmt_type_expr(&mut self, f: &mut fmt::Formatter<'_>, ty: &TypeExpr<'ast>) -> fmt::Result {
+    fn fmt_type_expr(&mut self, f: &mut fmt::Formatter<'_>, ty: &TypeExpr<'_>) -> fmt::Result {
         match ty {
             TypeExpr::NamePath(name_path) => self.fmt_name_path(f, name_path),
             TypeExpr::FnDef(fn_def) => {

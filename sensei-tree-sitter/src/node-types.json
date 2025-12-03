@@ -337,6 +337,10 @@
             "named": true
           },
           {
+            "type": "cond_stmt",
+            "named": true
+          },
+          {
             "type": "const_item",
             "named": true
           },
@@ -388,6 +392,80 @@
     "type": "bool_literal",
     "named": true,
     "fields": {}
+  },
+  {
+    "type": "cond_stmt",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "bin_literal",
+          "named": true
+        },
+        {
+          "type": "binary_expr",
+          "named": true
+        },
+        {
+          "type": "block",
+          "named": true
+        },
+        {
+          "type": "bool_literal",
+          "named": true
+        },
+        {
+          "type": "dec_literal",
+          "named": true
+        },
+        {
+          "type": "fn_call",
+          "named": true
+        },
+        {
+          "type": "hex_literal",
+          "named": true
+        },
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "member",
+          "named": true
+        },
+        {
+          "type": "paren_expr",
+          "named": true
+        },
+        {
+          "type": "struct_lit",
+          "named": true
+        },
+        {
+          "type": "type_def",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "const_def",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "const_item",
+          "named": true
+        }
+      ]
+    }
   },
   {
     "type": "const_item",
@@ -573,39 +651,99 @@
   {
     "type": "fn_def",
     "named": true,
-    "fields": {},
-    "children": {
-      "multiple": true,
-      "required": true,
-      "types": [
-        {
-          "type": "block",
-          "named": true
-        },
-        {
-          "type": "fn_def_params",
-          "named": true
-        },
-        {
-          "type": "type_expr",
-          "named": true
-        }
-      ]
+    "fields": {
+      "block": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "block",
+            "named": true
+          }
+        ]
+      },
+      "params": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "typed_item_def",
+            "named": true
+          }
+        ]
+      },
+      "type": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "type_expr",
+            "named": true
+          }
+        ]
+      }
     }
   },
   {
-    "type": "fn_def_params",
+    "type": "import",
     "named": true,
-    "fields": {},
-    "children": {
-      "multiple": true,
-      "required": false,
-      "types": [
-        {
-          "type": "typed_item_def",
-          "named": true
-        }
-      ]
+    "fields": {
+      "kind": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "import_all",
+            "named": true
+          },
+          {
+            "type": "import_select",
+            "named": true
+          }
+        ]
+      },
+      "path": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "string",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "import_all",
+    "named": true,
+    "fields": {
+      "as": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "import_select",
+    "named": true,
+    "fields": {
+      "selection": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
     }
   },
   {
@@ -903,7 +1041,11 @@
       "required": false,
       "types": [
         {
-          "type": "const_item",
+          "type": "const_def",
+          "named": true
+        },
+        {
+          "type": "import",
           "named": true
         },
         {
@@ -1057,7 +1199,7 @@
           "named": true
         },
         {
-          "type": "type_def",
+          "type": "struct_def",
           "named": true
         }
       ]
@@ -1127,6 +1269,10 @@
     "named": false
   },
   {
+    "type": "->",
+    "named": false
+  },
+  {
     "type": ".",
     "named": false
   },
@@ -1179,6 +1325,10 @@
     "named": false
   },
   {
+    "type": "as",
+    "named": false
+  },
+  {
     "type": "bin_literal",
     "named": true
   },
@@ -1191,11 +1341,23 @@
     "named": true
   },
   {
+    "type": "else",
+    "named": false
+  },
+  {
+    "type": "export",
+    "named": false
+  },
+  {
     "type": "false",
     "named": false
   },
   {
     "type": "fn",
+    "named": false
+  },
+  {
+    "type": "from",
     "named": false
   },
   {
@@ -1205,6 +1367,14 @@
   {
     "type": "identifier",
     "named": true
+  },
+  {
+    "type": "if",
+    "named": false
+  },
+  {
+    "type": "import",
+    "named": false
   },
   {
     "type": "init",
@@ -1230,6 +1400,10 @@
   {
     "type": "run",
     "named": false
+  },
+  {
+    "type": "string",
+    "named": true
   },
   {
     "type": "struct",

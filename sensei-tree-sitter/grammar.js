@@ -24,12 +24,16 @@ module.exports = grammar({
     source_file: ($) => repeat(choice(
       $.init,
       $.run,
-      $._const_def
+      $.const_def,
+      $.import
     )),
 
     init: ($) => seq("init", $.block),
     run: $ => seq("run", $.block),
-    _const_def: $ => seq($.const_item, ";"),
+    const_def: $ => seq(optional("export"), $.const_item, ";"),
+    import: $ => seq("import", field("kind", choice($.import_all, $.import_select)), "from", field("path", $.string), ";"),
+    import_all: $ => seq("*", optional(seq("as", field("as", $.identifier)))),
+    import_select: $ => seq("{", commaSeparated($.identifier, "selection"), "}"),
 
     const_item: $ => seq(
       "const",
@@ -40,7 +44,7 @@ module.exports = grammar({
     ),
 
     block: $ => seq("{", field("stmts", repeat($._stmt)), field("last_expr", optional($._expr)), "}"),
-    type_expr: $ => choice($.name_path, $.type_def),
+    type_expr: $ => choice($.name_path, $.struct_def),
     _expr: $ => choice($.block, $._expr_no_block),
     _expr_no_block: $ => choice(
       $.fn_call,
@@ -77,7 +81,11 @@ module.exports = grammar({
     },
     paren_expr: $ => seq("(", $._expr, ")"),
     member: $ => seq($._expr, ".", $.identifier),
-    _stmt: $ => choice(seq(choice($.const_item, $._expr_no_block, $.return, $.assign, $.let), ";"), seq($.block, optional(";"))),
+    _stmt: $ => choice(
+      seq(choice($.const_item, $._expr_no_block, $.return, $.assign, $.let), ";"),
+      seq($.block, optional(";")),
+      $.cond_stmt
+    ),
     return: $ => seq("return", $._expr),
     let: $ => seq("let", optional("mut"), $.identifier, optional(seq(":", $.type_expr)), "=", $._expr),
     assign: $ => seq($.name_path, "=", $._expr),
@@ -90,13 +98,27 @@ module.exports = grammar({
     ),
     struct_lit: $ => seq($.name_path, $.struct_lit_fields),
     struct_lit_fields: $ => seq("{", commaSeparated($.struct_lit_field), "}"),
-    struct_lit_field: $ => seq($.identifier, ":", $._expr),
+    struct_lit_field: $ => seq(
+      field("name", $.identifier),
+      ":",
+      $._expr
+    ),
 
     type_def: $ => choice($.fn_def, $.struct_def),
-    fn_def: $ => seq("fn", $.fn_def_params, $.type_expr, $.block),
-    fn_def_params: $ => seq("(", commaSeparated($.typed_item_def), ")"),
-    struct_def: $ => seq("struct", "{", commaSeparated($.typed_item_def), "}"),
-    typed_item_def: $ => seq($.identifier, ":", $.type_expr),
+    fn_def: $ => seq(
+      "fn",
+      "(",
+      commaSeparated($.typed_item_def, "params"),
+      ")",
+      optional(seq("->", field("type", $.type_expr))),
+      field("block", $.block)
+    ),
+    struct_def: $ => seq("struct", "{", commaSeparated($.typed_item_def, "field"), "}"),
+    typed_item_def: $ => seq(
+      field("name", $.identifier),
+      ":",
+      field("type", $.type_expr)
+    ),
 
     _literal: $ => choice($.bool_literal, $.hex_literal, $.bin_literal, $.dec_literal),
     bool_literal: (_) => choice("true", "false"),
@@ -107,6 +129,7 @@ module.exports = grammar({
     name_path: $ => seq($.identifier, repeat(seq(".", $.identifier))),
     line_comment: (_) => /\/\/[^\n]*/,
     identifier: (_) => /[a-zA-Z_][a-zA-Z0-9_]*/,
+    string: (_) => /"[a-zA-Z0-9_\./-]+"/
   },
 });
 
@@ -116,10 +139,15 @@ module.exports = grammar({
  * Matches at least one.
  *
  * @param {RuleOrLiteral} rule
+ * @param {string | null} fieldName
  *
  * @returns {ChoiceRule}
  */
-function commaSeparated(rule) {
-  return optional(seq(rule, repeat(seq(",", rule)), optional(",")));
+function commaSeparated(rule, fieldName = null) {
+  if (fieldName === null) {
+    return optional(seq(rule, repeat(seq(",", rule)), optional(",")));
+  } else {
+    return optional(seq(field(fieldName, rule), repeat(seq(",", field(fieldName, rule))), optional(",")));
+  }
 }
 

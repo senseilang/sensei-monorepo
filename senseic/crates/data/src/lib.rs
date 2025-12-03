@@ -70,6 +70,12 @@ impl<M> Hash for X32<M> {
     }
 }
 
+impl<M> std::fmt::Debug for X32<M> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}({})", std::any::type_name::<M>(), self.get())
+    }
+}
+
 impl<M> InternerSymbol for X32<M> {
     fn try_from_usize(id: usize) -> Option<Self> {
         u32::try_from(id).ok().and_then(Self::try_new)
