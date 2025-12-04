@@ -12,6 +12,12 @@ impl<T> Span<T> {
     }
 }
 
+impl std::fmt::Display for Span<usize> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "s[{}..{}]", self.start, self.end)
+    }
+}
+
 impl<T: Copy> Span<T> {
     pub fn range(&self) -> Range<T> {
         self.start..self.end

@@ -1,0 +1,106 @@
+type Span = crate::Span<usize>;
+
+#[derive(Debug, Clone)]
+pub struct Name {
+    pub name: Box<str>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct FuncDef {
+    pub func_bind: Name,
+    pub bind_type_expr: Expr,
+    pub body: Expr,
+}
+
+#[derive(Debug, Clone)]
+pub struct FuncApp {
+    pub func_expr: Expr,
+    pub applying_expr: Expr,
+}
+
+#[derive(Debug, Clone)]
+pub struct Block {
+    pub lets: Vec<Let>,
+    pub end_expr: Expr,
+}
+
+#[derive(Debug, Clone)]
+pub struct Let {
+    pub span: Span,
+    pub bind_local: Name,
+    pub local_type: Option<Expr>,
+    pub assigned: Expr,
+}
+
+#[derive(Debug, Clone)]
+pub struct StructField {
+    pub span: Span,
+    pub name: Name,
+    pub r#type: Expr,
+}
+
+#[derive(Debug, Clone)]
+pub struct StructDef {
+    pub def_uuid: u32,
+    pub fields_span: Span,
+    pub fields: Vec<StructField>,
+    pub associated_defs: Vec<Definition>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Definition {
+    pub def_name: Name,
+    pub expr: Expr,
+}
+
+#[derive(Debug, Clone)]
+pub struct IfThenElse {
+    pub span: Span,
+    pub condition: Expr,
+    pub true_branch: Expr,
+    pub false_branch: Expr,
+}
+
+#[derive(Debug, Clone)]
+pub struct BuiltinInvoke<const ARG_COUNT: usize> {
+    pub span: Span,
+    pub args: [Expr; ARG_COUNT],
+}
+
+#[derive(Debug, Clone)]
+pub struct MemberAccess {
+    pub r#struct: Expr,
+    pub member: Name,
+}
+
+#[derive(Debug, Clone)]
+pub enum ExprKind {
+    ConstVoid,
+    ConstInt(i32),
+    ConstBool(bool),
+    Var(Box<str>),
+
+    StructDef(Box<StructDef>),
+    IfThenElse(Box<IfThenElse>),
+    Block(Box<Block>),
+    FuncDef(Box<FuncDef>),
+    FuncApp(Box<FuncApp>),
+    MemberAccess(Box<MemberAccess>),
+    /* Builtins */
+    IntAdd(Box<BuiltinInvoke<2>>),
+    Eq(Box<BuiltinInvoke<2>>),
+    TypeOf(Box<BuiltinInvoke<1>>),
+}
+
+#[derive(Debug, Clone)]
+pub struct Expr {
+    pub span: Span,
+    pub kind: ExprKind,
+}
+
+#[derive(Debug)]
+pub struct Ast {
+    pub definitions: Vec<Definition>,
+    pub runtime_main: Expr,
+}

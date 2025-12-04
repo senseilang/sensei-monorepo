@@ -7,10 +7,11 @@ pub enum Token<'src> {
 
     RoundOpen,
     RoundClose,
-    Percent,
 
     True,
     False,
+
+    Error,
 }
 
 #[derive(Debug, Clone)]
@@ -36,12 +37,11 @@ impl<'src> Iterator for Lexer<'src> {
     type Item = (Token<'src>, Span<usize>);
 
     fn next(&mut self) -> Option<Self::Item> {
-        while let Some((start, c)) = self.chars.next() {
-            match c {
+        'find_next_token: while let Some((start, c)) = self.chars.next() {
+            let tok = match c {
                 '-' | '0'..='9' => {
                     while self.chars.next_if(|(_, c)| c.is_ascii_digit()).is_some() {}
-                    let span = Span::new(start, self.current());
-                    return Some((Token::Num(&self.source[span.range()]), span));
+                    Token::Num(&self.source[start..self.current()])
                 }
                 '_' | 'a'..='z' | 'A'..='Z' => {
                     while self
@@ -49,21 +49,48 @@ impl<'src> Iterator for Lexer<'src> {
                         .next_if(|(_, c)| c.is_ascii_alphanumeric() || *c == '_')
                         .is_some()
                     {}
-                    let span = Span::new(start, self.current());
-                    let name = &self.source[span.range()];
-                    return Some((
-                        match name {
-                            "true" => Token::True,
-                            "false" => Token::False,
-                            _ => Token::Ident(name),
-                        },
-                        span,
-                    ));
+                    match &self.source[start..self.current()] {
+                        "true" => Token::True,
+                        "false" => Token::False,
+                        name => Token::Ident(name),
+                    }
                 }
-                '(' => return Some((Token::RoundOpen, (start..start + 1).into())),
-                ')' => return Some((Token::RoundClose, (start..start + 1).into())),
-                _ => {}
-            }
+                '(' => Token::RoundOpen,
+                ')' => Token::RoundClose,
+                '/' => match self.chars.next() {
+                    Some((_, '/')) => {
+                        while self.chars.next().is_some_and(|(_, c)| c != '\n') {}
+                        continue;
+                    }
+                    Some((_, '*')) => {
+                        let mut nesting: u32 = 1;
+                        'next_block_comment_char: loop {
+                            match self.chars.next() {
+                                Some((_, '*')) => {
+                                    if self.chars.next_if(|(_, c)| *c == '/').is_some() {
+                                        nesting -= 1;
+                                    }
+                                }
+                                Some((_, '/')) => {
+                                    if self.chars.next_if(|(_, c)| *c == '*').is_some() {
+                                        nesting += 1;
+                                    }
+                                }
+                                Some(_) => {}
+                                None => break 'next_block_comment_char,
+                            }
+                            if nesting == 0 {
+                                continue 'find_next_token;
+                            }
+                        }
+                        Token::Error
+                    }
+                    _ => Token::Error,
+                },
+                ' ' | '\t' | '\n' | '\r' => continue,
+                _ => Token::Error,
+            };
+            return Some((tok, Span::new(start, self.current())));
         }
         None
     }
@@ -84,6 +111,8 @@ mod tests {
             (-123 aaa) )) a_3473bob
 
             void true
+
+            /*  /* ** / skibidi */    wow */
 
             %
             false
