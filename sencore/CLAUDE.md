@@ -51,3 +51,7 @@ iterate & have understandable code. Therefore:
 ### Span Tracking
 
 `src/span.rs` provides `Span<T>` for tracking source locations throughout the compilation pipeline. All AST nodes carry spans for error reporting.
+
+### S-Expression Syntax
+
+See `docs/s-expression-ast-format.md` for the full s-expression to AST mapping.

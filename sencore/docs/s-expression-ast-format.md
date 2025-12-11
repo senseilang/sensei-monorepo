@@ -15,6 +15,7 @@ true/false => boolean constant
 ```
 [function application] (apply e1 e2 ... e<N>) =>  (((e1 e2) e3) ...) e<N>
 [function definition] (func <bind:name> <type:expr> <body:expr>)
+[fixed-point] (fix <e:expr>)
 [if-else] (if <condition:expr> <true_branch:expr> <false_branch:expr>)
 [block] (block (<let_bind:name> <type:expr>? <assigned:expr>)* <block_final_result:expr>)
 [member-access] (attr <path_segment:name>* <struct_expr:expr>) =>
