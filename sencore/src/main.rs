@@ -1,4 +1,4 @@
-use sencore::parser::Parser;
+use sencore::parser::{Parser, lower_sexpr_to_ast};
 
 fn main() {
     let mut args = std::env::args();
@@ -8,10 +8,12 @@ fn main() {
         .unwrap_or_else(|e| panic!("Failed to read file {:?}: {:?}", path, e));
 
     let mut parser = Parser::new(&source);
-    let mut total = 0;
-    while let Some(list) = parser.parse_list().unwrap() {
-        println!("list: {:#?}", list);
-        total += 1;
-    }
-    println!("total: {:?}", total);
+    let list = parser
+        .parse_list()
+        .expect("parsing failed")
+        .expect("input does not contain list?");
+
+    let ast = lower_sexpr_to_ast(&list).expect("lowering failed");
+
+    println!("ast: {:#?}", ast);
 }

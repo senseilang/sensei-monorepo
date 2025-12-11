@@ -28,6 +28,7 @@ pub struct Block {
 #[derive(Debug, Clone)]
 pub struct LetBind {
     pub span: Span,
+    pub recursive: bool,
     pub bind_local: Name,
     pub local_type: Option<Expr>,
     pub assigned: Expr,
@@ -88,6 +89,7 @@ pub enum ExprKind {
     ConstBool(bool),
     Var(Box<str>),
 
+    Fix(Box<Expr>),
     FuncApp(Box<FuncApp>),
     IfThenElse(Box<IfThenElse>),
     Block(Box<Block>),
@@ -103,6 +105,10 @@ pub enum ExprKind {
     MemoryAllocate(Box<BuiltinInvoke<2>>),
     PointerStore(Box<BuiltinInvoke<2>>),
     PointerLoad(Box<BuiltinInvoke<1>>),
+    TypeIsStruct(Box<BuiltinInvoke<1>>),
+    GetStructFieldCount(Box<BuiltinInvoke<1>>),
+    GetStructField(Box<BuiltinInvoke<2>>),
+    ArrowType(Box<BuiltinInvoke<2>>),
 
     /* Runtime Only IO */
     RuntimeReturn(Box<BuiltinInvoke<2>>),

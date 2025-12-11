@@ -249,7 +249,7 @@ fn lower_if(ctx: &mut LoweringCtx, span: Span<usize>, args: &[SNode]) -> Result<
     })
 }
 
-/// (block (<name> <type>? <value>)* <result>)
+/// (block (<rec>? <name> <type>? <value>)* <result>)
 fn lower_block(
     ctx: &mut LoweringCtx,
     span: Span<usize>,
@@ -467,107 +467,139 @@ fn lower_builtin_args<const N: usize>(
 }
 
 fn snode_to_expr(ctx: &mut LoweringCtx, node: &SNode) -> Result<Expr, ParseError> {
-    let expr = |kind| Expr {
-        span: node.span,
-        kind,
+    let expr = |kind| {
+        Ok(Expr {
+            span: node.span,
+            kind,
+        })
     };
-    let e = match &node.kind {
-        SNodeKind::Num(x) => expr(ExprKind::ConstInt(*x)),
-        SNodeKind::Bool(b) => expr(ExprKind::ConstBool(*b)),
-        SNodeKind::Name(name) => expr(ExprKind::Var((*name).into())),
-        SNodeKind::List(list) => match list.as_slice() {
-            [] => expr(ExprKind::ConstVoid),
-            [single] => return snode_to_expr(ctx, single),
-            [kind_node, args @ ..] => {
-                let SNodeKind::Name(form_name) = &kind_node.kind else {
-                    return Err(ParseError {
-                        message: format!(
-                            "Expected form name (identifier), got {:?}",
-                            kind_node.kind
-                        ),
-                        span: kind_node.span,
-                    });
-                };
-                match *form_name {
-                    "apply" => lower_apply(ctx, node.span, args)?,
-                    "func" => lower_func(ctx, node.span, args)?,
-                    "if" => lower_if(ctx, node.span, args)?,
-                    "block" => lower_block(ctx, node.span, args)?,
-                    "attr" => lower_attr(ctx, node.span, args)?,
-                    "struct_def" => lower_struct(ctx, node.span, args)?,
-                    "struct_init" => lower_struct_init(ctx, node.span, args)?,
-                    "add" => expr(ExprKind::Add(lower_builtin_args(
-                        ctx, node.span, form_name, args,
-                    )?)),
-                    "eq" => expr(ExprKind::Eq(lower_builtin_args(
-                        ctx, node.span, form_name, args,
-                    )?)),
-                    "type_of" => expr(ExprKind::TypeOf(lower_builtin_args(
-                        ctx, node.span, form_name, args,
-                    )?)),
-                    "malloc" => expr(ExprKind::MemoryAllocate(lower_builtin_args(
-                        ctx, node.span, form_name, args,
-                    )?)),
-                    "ptr_store" => expr(ExprKind::PointerStore(lower_builtin_args(
-                        ctx, node.span, form_name, args,
-                    )?)),
-                    "ptr_load" => expr(ExprKind::PointerLoad(lower_builtin_args(
-                        ctx, node.span, form_name, args,
-                    )?)),
-                    "return" => expr(ExprKind::RuntimeReturn(lower_builtin_args(
-                        ctx, node.span, form_name, args,
-                    )?)),
-                    "copy_input" => expr(ExprKind::LoadInput(lower_builtin_args(
-                        ctx, node.span, form_name, args,
-                    )?)),
-                    "input_size" => expr({
-                        if !args.is_empty() {
-                            return Err(ParseError {
-                                message: format!(
-                                    "`input_size` takes no arguments, got: {}",
-                                    args.len()
-                                ),
-                                span: node.span,
-                            });
-                        }
-                        ExprKind::InputSize
-                    }),
-                    other => {
-                        return Err(ParseError {
-                            message: format!("Unknown form: {}", other),
-                            span: kind_node.span,
-                        });
-                    }
-                }
+    let list = match &node.kind {
+        SNodeKind::Num(x) => return expr(ExprKind::ConstInt(*x)),
+        SNodeKind::Bool(b) => return expr(ExprKind::ConstBool(*b)),
+        SNodeKind::Name(name) => return expr(ExprKind::Var((*name).into())),
+        SNodeKind::List(list) => list,
+    };
+    let [first, args @ ..] = list.as_slice() else {
+        return expr(ExprKind::ConstVoid);
+    };
+    let SNodeKind::Name(form_name) = &first.kind else {
+        if args.is_empty() {
+            // Single non-name element (e.g. number, nested list)
+            return snode_to_expr(ctx, first);
+        } else {
+            return Err(ParseError {
+                message: format!("Expected form name (identifier), got {:?}", first.kind),
+                span: first.span,
+            });
+        }
+    };
+    match *form_name {
+        "apply" => Ok(lower_apply(ctx, node.span, args)?),
+        "func" => Ok(lower_func(ctx, node.span, args)?),
+        "if" => Ok(lower_if(ctx, node.span, args)?),
+        "block" => Ok(lower_block(ctx, node.span, args)?),
+        "attr" => Ok(lower_attr(ctx, node.span, args)?),
+        "struct_def" => Ok(lower_struct(ctx, node.span, args)?),
+        "struct_init" => Ok(lower_struct_init(ctx, node.span, args)?),
+        "fix" => {
+            let [inner] = args else {
+                return Err(ParseError {
+                    message: format!("`fix` requires exactly 1 argument, got {}", args.len()),
+                    span: node.span,
+                });
+            };
+            expr(ExprKind::Fix(Box::new(snode_to_expr(ctx, inner)?)))
+        }
+        /* Builtins */
+        "add" => expr(ExprKind::Add(lower_builtin_args(
+            ctx, node.span, form_name, args,
+        )?)),
+        "eq" => expr(ExprKind::Eq(lower_builtin_args(
+            ctx, node.span, form_name, args,
+        )?)),
+        "meta__type_of" => expr(ExprKind::TypeOf(lower_builtin_args(
+            ctx, node.span, form_name, args,
+        )?)),
+        "meta__is_struct" => expr(ExprKind::TypeIsStruct(lower_builtin_args(
+            ctx, node.span, form_name, args,
+        )?)),
+        "meta__struct_get_total_fields" => expr(ExprKind::GetStructFieldCount(lower_builtin_args(
+            ctx, node.span, form_name, args,
+        )?)),
+        "meta__struct_get_field" => expr(ExprKind::GetStructField(lower_builtin_args(
+            ctx, node.span, form_name, args,
+        )?)),
+        "fn" => expr(ExprKind::ArrowType(lower_builtin_args(
+            ctx, node.span, form_name, args,
+        )?)),
+        "mem__malloc" => expr(ExprKind::MemoryAllocate(lower_builtin_args(
+            ctx, node.span, form_name, args,
+        )?)),
+        "mem__ptr_store" => expr(ExprKind::PointerStore(lower_builtin_args(
+            ctx, node.span, form_name, args,
+        )?)),
+        "mem__ptr_load" => expr(ExprKind::PointerLoad(lower_builtin_args(
+            ctx, node.span, form_name, args,
+        )?)),
+        "io__return" => expr(ExprKind::RuntimeReturn(lower_builtin_args(
+            ctx, node.span, form_name, args,
+        )?)),
+        "io__copy_input" => expr(ExprKind::LoadInput(lower_builtin_args(
+            ctx, node.span, form_name, args,
+        )?)),
+        "io__input_size" => expr({
+            if !args.is_empty() {
+                return Err(ParseError {
+                    message: format!("`input_size` takes no arguments, got: {}", args.len()),
+                    span: node.span,
+                });
             }
-        },
-    };
-    Ok(e)
+            ExprKind::InputSize
+        }),
+        _ if args.is_empty() => return snode_to_expr(ctx, first),
+        unknown => {
+            return Err(ParseError {
+                message: format!("Unknown form: {}", unknown),
+                span: first.span,
+            });
+        }
+    }
 }
 
 fn lower_let_bind(ctx: &mut LoweringCtx, node: &SNode) -> Result<LetBind, ParseError> {
     let let_list = expect_list(node)?;
-    let let_span = node.span;
+    let span = node.span;
 
-    match let_list {
+    let Some((first_node, remaining)) = let_list.split_first() else {
+        return Err(ParseError {
+            message: format!("let bind requires at least 2 nodes, got: 0"),
+            span,
+        });
+    };
+    let recursive = &expect_name(first_node)?.name as &str == "rec";
+    let remaining = if recursive { remaining } else { let_list };
+
+    match remaining {
         [name_node, value_node] => Ok(LetBind {
-            span: let_span,
+            recursive,
+            span,
             bind_local: expect_name(name_node)?,
             local_type: None,
             assigned: snode_to_expr(ctx, value_node)?,
         }),
         [name_node, type_node, value_node] => Ok(LetBind {
-            span: let_span,
+            recursive,
+            span,
             bind_local: expect_name(name_node)?,
             local_type: Some(snode_to_expr(ctx, type_node)?),
             assigned: snode_to_expr(ctx, value_node)?,
         }),
         _ => Err(ParseError {
             message: format!(
-                "let binding must have 2 (name, value) or 3 (name, type, value) elements, got {}",
+                "let binding must have 2-4 nodes (\"rec\"? name type? value), got {}",
                 let_list.len()
             ),
-            span: let_span,
+            span,
         }),
     }
 }
@@ -710,5 +742,23 @@ mod tests {
             panic!("Expected StructInit");
         };
         assert_eq!(s.fields.len(), 0);
+    }
+
+    #[test]
+    fn test_keyword_without_args_errors() {
+        // Keywords without required arguments should error, not become Var
+        assert!(parse_and_lower("(block)").is_err());
+        assert!(parse_and_lower("(func)").is_err());
+        assert!(parse_and_lower("(if)").is_err());
+        assert!(parse_and_lower("(apply)").is_err());
+        assert!(parse_and_lower("(attr)").is_err());
+        assert!(parse_and_lower("(struct_def)").is_err());
+        assert!(parse_and_lower("(add)").is_err());
+        assert!(parse_and_lower("(eq)").is_err());
+        assert!(parse_and_lower("(type_of)").is_err());
+
+        // Non-keywords should still work as Var
+        let ast = parse_and_lower("(foo)").unwrap();
+        assert!(matches!(&ast.runtime_main.kind, ExprKind::Var(name) if &**name == "foo"));
     }
 }
