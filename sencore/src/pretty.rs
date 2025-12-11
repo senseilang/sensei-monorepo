@@ -91,7 +91,7 @@ impl<'a, W: Write> PrettyPrinter<'a, W> {
         }
     }
 
-    /// Unfold left-nested FuncApp into (apply e1 e2 ... eN)
+    /// Unfold left-nested FuncApp into (e1 e2 ... eN)
     fn print_func_app(&mut self, expr: &Expr) -> fmt::Result {
         let mut args = Vec::new();
         let mut current = expr;
@@ -108,7 +108,7 @@ impl<'a, W: Write> PrettyPrinter<'a, W> {
 
         let all_simple = is_simple(current) && args.iter().all(|a| is_simple(a));
 
-        write!(self.out, "(apply ")?;
+        write!(self.out, "(")?;
         self.print_expr(current)?;
 
         if all_simple {
@@ -348,10 +348,10 @@ mod tests {
 
     #[test]
     fn test_apply() {
-        assert_eq!(pretty_print_ast(&parse("(apply f x)")), "(apply f x)");
+        assert_eq!(pretty_print_ast(&parse("(apply f x)")), "(f x)");
         assert_eq!(
             pretty_print_ast(&parse("(apply f x y z)")),
-            "(apply f x y z)"
+            "(f x y z)"
         );
     }
 
