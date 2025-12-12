@@ -183,11 +183,7 @@ impl<'a, W: Write> PrettyPrinter<'a, W> {
     }
 
     fn print_let_bind(&mut self, let_bind: &LetBind) -> fmt::Result {
-        write!(self.out, "(")?;
-        if let_bind.recursive {
-            write!(self.out, "rec ")?;
-        }
-        write!(self.out, "{}", let_bind.bind_local.name)?;
+        write!(self.out, "({}", let_bind.bind_local.name)?;
         if let Some(type_expr) = &let_bind.local_type {
             write!(self.out, " ")?;
             self.print_expr(type_expr)?;
@@ -372,13 +368,6 @@ mod tests {
         assert!(output.contains("(block"));
         assert!(output.contains("(x 10)"));
         assert!(output.contains("(y word 20)"));
-    }
-
-    #[test]
-    fn test_block_recursive() {
-        let ast = parse("(block (rec f (func x word x)) (apply f 1))");
-        let output = pretty_print_ast(&ast);
-        assert!(output.contains("(rec f"));
     }
 
     #[test]

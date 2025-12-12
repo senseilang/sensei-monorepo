@@ -23,6 +23,25 @@ pub enum SNodeKind<'src> {
     List(Vec<SNode<'src>>),
 }
 
+impl<'src> SNodeKind<'src> {
+    fn describe(&self) -> String {
+        match self {
+            SNodeKind::Num(n) => format!("number `{}`", n),
+            SNodeKind::Bool(b) => format!("boolean `{}`", b),
+            SNodeKind::Name(name) => format!("identifier `{}`", name),
+            SNodeKind::List(items) => {
+                if items.is_empty() {
+                    "empty list `()`".to_string()
+                } else if let SNodeKind::Name(name) = &items[0].kind {
+                    format!("list starting with `{}`", name)
+                } else {
+                    "nested list".to_string()
+                }
+            }
+        }
+    }
+}
+
 pub struct Parser<'src> {
     source: &'src str,
     tokens: std::iter::Peekable<Lexer<'src>>,
@@ -315,14 +334,18 @@ fn lower_struct(
     span: Span<usize>,
     args: &[SNode],
 ) -> Result<Expr, ParseError> {
-    let [fields_node, defs_node] = args else {
-        return Err(ParseError {
-            message: format!(
-                "struct requires exactly 2 arguments (fields, defs), got {}",
-                args.len()
-            ),
-            span,
-        });
+    let (fields_node, defs) = match args {
+        [fields_node] => (fields_node, None),
+        [fields_node, defs_node] => (fields_node, Some(defs_node)),
+        _ => {
+            return Err(ParseError {
+                message: format!(
+                    "struct requires exactly 2 arguments (fields, defs), got {}",
+                    args.len()
+                ),
+                span,
+            });
+        }
     };
 
     // Parse fields: (fields (<name> <type>)*)
@@ -366,28 +389,34 @@ fn lower_struct(
         });
     }
 
-    // Parse defs: (defs <def_node>*)
-    let defs_list = expect_list(defs_node)?;
+    // Parse defs: (defs <def_node>*) - optional, defaults to empty
+    let associated_defs = match defs {
+        Some(defs_node) => {
+            let defs_list = expect_list(defs_node)?;
 
-    let (defs_keyword, def_entries) = defs_list.split_first().ok_or_else(|| ParseError {
-        message: "defs list cannot be empty, must start with 'defs' keyword".into(),
-        span: defs_node.span,
-    })?;
+            let (defs_keyword, def_entries) =
+                defs_list.split_first().ok_or_else(|| ParseError {
+                    message: "defs list cannot be empty, must start with 'defs' keyword".into(),
+                    span: defs_node.span,
+                })?;
 
-    match &defs_keyword.kind {
-        SNodeKind::Name("defs") => {}
-        _ => {
-            return Err(ParseError {
-                message: format!("Expected 'defs' keyword, got {:?}", defs_keyword.kind),
-                span: defs_keyword.span,
-            });
+            match &defs_keyword.kind {
+                SNodeKind::Name("defs") => {}
+                _ => {
+                    return Err(ParseError {
+                        message: format!("Expected 'defs' keyword, got {:?}", defs_keyword.kind),
+                        span: defs_keyword.span,
+                    });
+                }
+            }
+
+            def_entries
+                .iter()
+                .map(|def_node| lower_let_bind(ctx, def_node))
+                .collect::<Result<Vec<_>, _>>()?
         }
-    }
-
-    let associated_defs = def_entries
-        .iter()
-        .map(|def_node| lower_let_bind(ctx, def_node))
-        .collect::<Result<Vec<_>, _>>()?;
+        None => Vec::new(),
+    };
 
     let def_uuid = ctx.alloc_struct_id();
 
@@ -468,7 +497,11 @@ fn snode_to_expr(ctx: &mut LoweringCtx, node: &SNode) -> Result<Expr, ParseError
             return snode_to_expr(ctx, first);
         } else {
             return Err(ParseError {
-                message: format!("Expected form name (identifier), got {:?}", first.kind),
+                message: format!(
+                    "Expected identifier at start of form, got {}. \
+                     Hint: use `block` for sequential bindings",
+                    first.kind.describe()
+                ),
                 span: first.span,
             });
         }
@@ -493,25 +526,14 @@ fn lower_let_bind(ctx: &mut LoweringCtx, node: &SNode) -> Result<LetBind, ParseE
     let let_list = expect_list(node)?;
     let span = node.span;
 
-    let Some((first_node, remaining)) = let_list.split_first() else {
-        return Err(ParseError {
-            message: format!("let bind requires at least 2 nodes, got: 0"),
-            span,
-        });
-    };
-    let recursive = &expect_name(first_node)?.name as &str == "rec";
-    let remaining = if recursive { remaining } else { let_list };
-
-    match remaining {
+    match let_list {
         [name_node, value_node] => Ok(LetBind {
-            recursive,
             span,
             bind_local: expect_name(name_node)?,
             local_type: None,
             assigned: snode_to_expr(ctx, value_node)?,
         }),
         [name_node, type_node, value_node] => Ok(LetBind {
-            recursive,
             span,
             bind_local: expect_name(name_node)?,
             local_type: Some(snode_to_expr(ctx, type_node)?),
@@ -519,7 +541,7 @@ fn lower_let_bind(ctx: &mut LoweringCtx, node: &SNode) -> Result<LetBind, ParseE
         }),
         _ => Err(ParseError {
             message: format!(
-                "let binding must have 2-4 nodes (\"rec\"? name type? value), got {}",
+                "let binding must have 2-3 nodes (name type? value), got {}",
                 let_list.len()
             ),
             span,
@@ -616,6 +638,16 @@ mod tests {
         };
         assert_eq!(s.fields.len(), 2);
         assert_eq!(s.def_uuid, 0);
+    }
+
+    #[test]
+    fn test_lower_struct_without_defs() {
+        let ast = parse_and_lower("(struct_def (fields (x word) (y bool)))").unwrap();
+        let ExprKind::StructDef(s) = &ast.runtime_main.kind else {
+            panic!("Expected StructDef");
+        };
+        assert_eq!(s.fields.len(), 2);
+        assert_eq!(s.associated_defs.len(), 0);
     }
 
     #[test]
