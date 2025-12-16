@@ -8,6 +8,7 @@ pub struct Name {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct FuncDef {
+    pub is_comptime: bool,
     pub func_bind: Name,
     pub bind_type_expr: Expr,
     pub body: Expr,
@@ -28,8 +29,8 @@ pub struct Block {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct LetBind {
     pub span: Span,
+    pub is_comptime: bool,
     pub bind_local: Name,
-    pub local_type: Option<Expr>,
     pub assigned: Expr,
 }
 
@@ -65,7 +66,6 @@ pub struct StructInit {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct IfThenElse {
-    pub span: Span,
     pub condition: Expr,
     pub true_branch: Expr,
     pub false_branch: Expr,

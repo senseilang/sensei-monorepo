@@ -72,7 +72,11 @@ impl<'a, W: Write> PrettyPrinter<'a, W> {
     }
 
     fn print_func_def(&mut self, def: &FuncDef) -> fmt::Result {
-        write!(self.out, "(func {} ", def.func_bind.name)?;
+        if def.is_comptime {
+            write!(self.out, "(func comptime {} ", def.func_bind.name)?;
+        } else {
+            write!(self.out, "(func {} ", def.func_bind.name)?;
+        }
         self.print_expr(&def.bind_type_expr)?;
 
         if is_simple(&def.body) {
@@ -183,10 +187,10 @@ impl<'a, W: Write> PrettyPrinter<'a, W> {
     }
 
     fn print_let_bind(&mut self, let_bind: &LetBind) -> fmt::Result {
-        write!(self.out, "({}", let_bind.bind_local.name)?;
-        if let Some(type_expr) = &let_bind.local_type {
-            write!(self.out, " ")?;
-            self.print_expr(type_expr)?;
+        if let_bind.is_comptime {
+            write!(self.out, "(comptime {}", let_bind.bind_local.name)?;
+        } else {
+            write!(self.out, "({}", let_bind.bind_local.name)?;
         }
         write!(self.out, " ")?;
         self.print_expr(&let_bind.assigned)?;
@@ -345,10 +349,7 @@ mod tests {
     #[test]
     fn test_apply() {
         assert_eq!(pretty_print_ast(&parse("(apply f x)")), "(f x)");
-        assert_eq!(
-            pretty_print_ast(&parse("(apply f x y z)")),
-            "(f x y z)"
-        );
+        assert_eq!(pretty_print_ast(&parse("(apply f x y z)")), "(f x y z)");
     }
 
     #[test]
@@ -363,11 +364,11 @@ mod tests {
 
     #[test]
     fn test_block_with_lets() {
-        let ast = parse("(block (x 10) (y word 20) x)");
+        let ast = parse("(block (x 10) (y 20) x)");
         let output = pretty_print_ast(&ast);
         assert!(output.contains("(block"));
         assert!(output.contains("(x 10)"));
-        assert!(output.contains("(y word 20)"));
+        assert!(output.contains("(y 20)"));
     }
 
     #[test]

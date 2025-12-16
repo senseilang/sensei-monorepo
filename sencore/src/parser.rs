@@ -107,6 +107,10 @@ fn expect_list<'src, 'a>(node: &'a SNode<'src>) -> Result<&'a [SNode<'src>], Par
     }
 }
 
+fn is_comptime_keyword(node: &SNode) -> bool {
+    matches!(&node.kind, SNodeKind::Name("comptime"))
+}
+
 impl<'src> Parser<'src> {
     pub fn new(source: &'src str) -> Self {
         Self {
@@ -211,17 +215,23 @@ fn lower_apply(
     })
 }
 
-/// (func <bind:name> <type:expr> <body:expr>)
+/// (func comptime? <bind:name> <type:expr> <body:expr>)
 fn lower_func(
     ctx: &mut LoweringCtx,
     span: Span<usize>,
     args: &[SNode],
 ) -> Result<Expr, ParseError> {
-    let [bind, type_expr, body] = args else {
+    // Check if first argument is "comptime" keyword
+    let (is_comptime, remaining_args) = match args {
+        [first, rest @ ..] if is_comptime_keyword(first) => (true, rest),
+        _ => (false, args),
+    };
+
+    let [bind, type_expr, body] = remaining_args else {
         return Err(ParseError {
             message: format!(
                 "func requires exactly 3 arguments (bind, type, body), got {}",
-                args.len()
+                remaining_args.len()
             ),
             span,
         });
@@ -234,6 +244,7 @@ fn lower_func(
     Ok(Expr {
         span,
         kind: ExprKind::FuncDef(Box::new(FuncDef {
+            is_comptime,
             func_bind,
             bind_type_expr,
             body,
@@ -260,7 +271,6 @@ fn lower_if(ctx: &mut LoweringCtx, span: Span<usize>, args: &[SNode]) -> Result<
     Ok(Expr {
         span,
         kind: ExprKind::IfThenElse(Box::new(IfThenElse {
-            span,
             condition,
             true_branch,
             false_branch,
@@ -526,23 +536,23 @@ fn lower_let_bind(ctx: &mut LoweringCtx, node: &SNode) -> Result<LetBind, ParseE
     let let_list = expect_list(node)?;
     let span = node.span;
 
-    match let_list {
+    // Check if first element is "comptime" keyword
+    let (is_comptime, remaining) = match let_list {
+        [first, rest @ ..] if is_comptime_keyword(first) => (true, rest),
+        _ => (false, let_list),
+    };
+
+    match remaining {
         [name_node, value_node] => Ok(LetBind {
             span,
+            is_comptime,
             bind_local: expect_name(name_node)?,
-            local_type: None,
-            assigned: snode_to_expr(ctx, value_node)?,
-        }),
-        [name_node, type_node, value_node] => Ok(LetBind {
-            span,
-            bind_local: expect_name(name_node)?,
-            local_type: Some(snode_to_expr(ctx, type_node)?),
             assigned: snode_to_expr(ctx, value_node)?,
         }),
         _ => Err(ParseError {
             message: format!(
-                "let binding must have 2-3 nodes (name type? value), got {}",
-                let_list.len()
+                "let binding must have 2-3 nodes (comptime? name value), got {}",
+                remaining.len()
             ),
             span,
         }),
@@ -591,13 +601,11 @@ mod tests {
 
     #[test]
     fn test_lower_block() {
-        let ast = parse_and_lower("(block (x 10) (y word 20) x)").unwrap();
+        let ast = parse_and_lower("(block (x 10) (y 20) x)").unwrap();
         let ExprKind::Block(block) = &ast.runtime_main.kind else {
             panic!("Expected Block");
         };
         assert_eq!(block.lets.len(), 2);
-        assert!(block.lets[0].local_type.is_none());
-        assert!(block.lets[1].local_type.is_some());
     }
 
     #[test]
@@ -653,7 +661,7 @@ mod tests {
     #[test]
     fn test_lower_struct_with_defs() {
         let ast = parse_and_lower(
-            "(struct_def (fields (x word)) (defs (new (func self word self)) (get_x word 42)))",
+            "(struct_def (fields (x word)) (defs (new (func self word self)) (get_x 42)))",
         )
         .unwrap();
         let ExprKind::StructDef(s) = &ast.runtime_main.kind else {
@@ -662,9 +670,7 @@ mod tests {
         assert_eq!(s.fields.len(), 1);
         assert_eq!(s.associated_defs.len(), 2);
         assert_eq!(&*s.associated_defs[0].bind_local.name, "new");
-        assert!(s.associated_defs[0].local_type.is_none());
         assert_eq!(&*s.associated_defs[1].bind_local.name, "get_x");
-        assert!(s.associated_defs[1].local_type.is_some());
     }
 
     #[test]

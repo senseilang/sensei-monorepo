@@ -15,9 +15,9 @@ true/false => boolean constant
 ```
 [function application] (e1 e2 ... e<N>) =>  (((e1 e2) e3) ...) e<N>
     - also: (apply e1 e2 ... e<N>) for explicit form
-[function definition] (func <bind:name> <type:expr> <body:expr>)
+[function definition] (func comptime? <bind:name> <type:expr> <body:expr>)
 [if-else] (if <condition:expr> <true_branch:expr> <false_branch:expr>)
-[block] (block (<let_bind:name> <type:expr>? <assigned:expr>)* <block_final_result:expr>)
+[block] (block (comptime? <let_bind:name> <assigned:expr>)* <block_final_result:expr>)
 [member-access] (attr <path_segment:name>* <struct_expr:expr>) =>
     ((struct_expr.segment[0]).segment[1]) ... .segment[n]
 [struct definition] (struct_def
