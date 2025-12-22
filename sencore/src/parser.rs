@@ -278,7 +278,9 @@ fn lower_if(ctx: &mut LoweringCtx, span: Span<usize>, args: &[SNode]) -> Result<
     })
 }
 
-/// (block (<rec>? <name> <type>? <value>)* <result>)
+/// (block (<comptime>? <name> <type> <value>)* <result>)
+/// Desugars into nested lambda applications:
+/// (block (x T1 e1) (y T2 e2) e3) => ((λ x:T1. ((λ y:T2. e3) e2)) e1)
 fn lower_block(
     ctx: &mut LoweringCtx,
     span: Span<usize>,
@@ -298,10 +300,30 @@ fn lower_block(
         err
     })?;
 
-    Ok(Expr {
-        span,
-        kind: ExprKind::Block(Box::new(Block { lets, end_expr })),
-    })
+    // Desugar: fold right over let bindings
+    // For each binding, wrap the result in (λ name:type. result) value
+    let result = lets.into_iter().rev().fold(end_expr, |body, let_bind| {
+        let func_span = Span::new(let_bind.span.start, body.span.end);
+        let func_def = Expr {
+            span: func_span,
+            kind: ExprKind::FuncDef(Box::new(FuncDef {
+                is_comptime: let_bind.is_comptime,
+                func_bind: let_bind.bind_local,
+                bind_type_expr: let_bind.bind_type_expr,
+                body,
+            })),
+        };
+        let app_span = Span::new(let_bind.span.start, let_bind.assigned.span.end);
+        Expr {
+            span: app_span,
+            kind: ExprKind::FuncApp(Box::new(FuncApp {
+                func_expr: func_def,
+                applying_expr: let_bind.assigned,
+            })),
+        }
+    });
+
+    Ok(result)
 }
 
 /// (attr <path_segment:name>+ <struct_expr>)
@@ -543,15 +565,16 @@ fn lower_let_bind(ctx: &mut LoweringCtx, node: &SNode) -> Result<LetBind, ParseE
     };
 
     match remaining {
-        [name_node, value_node] => Ok(LetBind {
+        [name_node, type_node, value_node] => Ok(LetBind {
             span,
             is_comptime,
             bind_local: expect_name(name_node)?,
+            bind_type_expr: snode_to_expr(ctx, type_node)?,
             assigned: snode_to_expr(ctx, value_node)?,
         }),
         _ => Err(ParseError {
             message: format!(
-                "let binding must have 2-3 nodes (comptime? name value), got {}",
+                "let binding must have 3-4 nodes (comptime? name type value), got {}",
                 remaining.len()
             ),
             span,
@@ -601,11 +624,27 @@ mod tests {
 
     #[test]
     fn test_lower_block() {
-        let ast = parse_and_lower("(block (x 10) (y 20) x)").unwrap();
-        let ExprKind::Block(block) = &ast.runtime_main.kind else {
-            panic!("Expected Block");
+        // Block is now desugared to nested FuncApp/FuncDef
+        // (block (x i32 10) (y i32 20) x) => ((λ x:i32. ((λ y:i32. x) 20)) 10)
+        let ast = parse_and_lower("(block (x i32 10) (y i32 20) x)").unwrap();
+        // Outer is FuncApp applying 10 to (λ x. ...)
+        let ExprKind::FuncApp(outer_app) = &ast.runtime_main.kind else {
+            panic!("Expected outer FuncApp");
         };
-        assert_eq!(block.lets.len(), 2);
+        // The func_expr should be a FuncDef (λ x. ...)
+        let ExprKind::FuncDef(outer_func) = &outer_app.func_expr.kind else {
+            panic!("Expected outer FuncDef");
+        };
+        assert_eq!(&*outer_func.func_bind.name, "x");
+        // The body of outer_func should be another FuncApp
+        let ExprKind::FuncApp(inner_app) = &outer_func.body.kind else {
+            panic!("Expected inner FuncApp");
+        };
+        // Which applies to (λ y. ...)
+        let ExprKind::FuncDef(inner_func) = &inner_app.func_expr.kind else {
+            panic!("Expected inner FuncDef");
+        };
+        assert_eq!(&*inner_func.func_bind.name, "y");
     }
 
     #[test]
@@ -661,7 +700,7 @@ mod tests {
     #[test]
     fn test_lower_struct_with_defs() {
         let ast = parse_and_lower(
-            "(struct_def (fields (x word)) (defs (new (func self word self)) (get_x 42)))",
+            "(struct_def (fields (x word)) (defs (new function (func self word self)) (get_x i32 42)))",
         )
         .unwrap();
         let ExprKind::StructDef(s) = &ast.runtime_main.kind else {

@@ -21,16 +21,11 @@ pub struct FuncApp {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Block {
-    pub lets: Vec<LetBind>,
-    pub end_expr: Expr,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct LetBind {
     pub span: Span,
     pub is_comptime: bool,
     pub bind_local: Name,
+    pub bind_type_expr: Expr,
     pub assigned: Expr,
 }
 
@@ -90,7 +85,6 @@ pub enum ExprKind {
     MemberAccess(Box<MemberAccess>),
     IfThenElse(Box<IfThenElse>),
     FuncApp(Box<FuncApp>),
-    Block(Box<Block>),
     FuncDef(Box<FuncDef>),
     StructDef(Box<StructDef>),
     StructInit(Box<StructInit>),

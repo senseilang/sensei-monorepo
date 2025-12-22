@@ -20,7 +20,7 @@ pub struct InterpretError {
 #[derive(Debug, Clone)]
 struct Scope {
     parent_scope: Option<ScopeId>,
-    binds: HashMap<Box<str>, Value>,
+    binds: HashMap<Box<str>, Option<Value>>,
 }
 
 #[derive(Debug, Clone)]
@@ -41,6 +41,13 @@ impl OverlappingBindNameInScope {
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum Bind<'ctx> {
+    Value(&'ctx Value),
+    Free,
+    Notbound,
+}
+
 impl InterpretContext {
     fn new() -> Self {
         let root_scope = Scope {
@@ -51,40 +58,70 @@ impl InterpretContext {
             scopes: vec![root_scope],
             current_scope: ScopeId(0),
         };
-        ctx.bind_in_current_scope("void", Type::Void.into())
+
+        // Types
+        ctx.bind("void", Type::Void).unwrap();
+        ctx.bind("i32", Type::Num).unwrap();
+        ctx.bind("bool", Type::Bool).unwrap();
+        ctx.bind("memptr", Type::MemoryPointer).unwrap();
+        ctx.bind("type", Type::Type).unwrap();
+        ctx.bind("function", Type::Function).unwrap();
+
+        // Builtins
+        ctx.bind("meta__struct_get_field", Builtin::MetaGetStructField)
             .unwrap();
-        ctx.bind_in_current_scope("i32", Type::Num.into()).unwrap();
-        ctx.bind_in_current_scope("bool", Type::Bool.into())
-            .unwrap();
-        ctx.bind_in_current_scope("memptr", Type::MemoryPointer.into())
-            .unwrap();
-        ctx.bind_in_current_scope("type", Type::Type.into())
-            .unwrap();
-        ctx.bind_in_current_scope("function", Type::Function.into())
-            .unwrap();
+        ctx.bind("meta__is_struct", Builtin::MetaIsStruct).unwrap();
+        ctx.bind(
+            "meta__struct_get_total_fields",
+            Builtin::MetaGetTotalStructFields,
+        )
+        .unwrap();
+        ctx.bind("error", Builtin::Error).unwrap();
+        ctx.bind("add", Builtin::Add).unwrap();
+        ctx.bind("eq", Builtin::Eq).unwrap();
+        ctx.bind("mem__malloc", Builtin::Malloc).unwrap();
+        ctx.bind("mem__write", Builtin::MemWrite).unwrap();
+        ctx.bind("mem__read", Builtin::MemRead).unwrap();
+        ctx.bind("io__input_size", Builtin::IoInputSize).unwrap();
+        ctx.bind("io__input_copy", Builtin::IoInputCopy).unwrap();
+        ctx.bind("io__return_exit", Builtin::IoReturnExit).unwrap();
+
         ctx
     }
-    fn get(&self, name: impl AsRef<str>) -> Option<&Value> {
+
+    fn get(&self, name: impl AsRef<str>) -> Bind<'_> {
         let name = name.as_ref();
         let mut current = Some(self.current_scope);
         while let Some(scope) = current {
             let scope = &self.scopes[scope.0];
             if let Some(value) = scope.binds.get(name) {
-                return Some(value);
+                return match value {
+                    None => Bind::Free,
+                    Some(value) => Bind::Value(value),
+                };
             }
             current = scope.parent_scope;
         }
-        None
+        Bind::Notbound
     }
 
-    fn bind_in_current_scope(
+    fn bind(
         &mut self,
         name: impl AsRef<str>,
-        value: Value,
+        value: impl Into<Value>,
     ) -> Result<(), OverlappingBindNameInScope> {
         let name = name.as_ref();
         let scope = &mut self.scopes[self.current_scope.0];
-        match scope.binds.insert(name.into(), value) {
+        match scope.binds.insert(name.into(), Some(value.into())) {
+            Some(_) => Err(OverlappingBindNameInScope),
+            None => Ok(()),
+        }
+    }
+
+    fn free(&mut self, name: impl AsRef<str>) -> Result<(), OverlappingBindNameInScope> {
+        let name = name.as_ref();
+        let scope = &mut self.scopes[self.current_scope.0];
+        match scope.binds.insert(name.into(), None) {
             Some(_) => Err(OverlappingBindNameInScope),
             None => Ok(()),
         }
@@ -108,8 +145,9 @@ impl InterpretContext {
     }
 }
 
-fn eval(expr: &ast::Expr, ctx: &mut InterpretContext) -> Result<Value, InterpretError> {
+fn eval(expr: &ast::Expr, ctx: &mut InterpretContext) -> Result<ast::Expr, InterpretError> {
     use ast::ExprKind;
+
     let span = expr.span;
     let v = match &expr.kind {
         ExprKind::ConstVoid => Value::Void,
@@ -133,23 +171,12 @@ fn eval(expr: &ast::Expr, ctx: &mut InterpretContext) -> Result<Value, Interpret
                     });
                 }
             };
-            if cond {
-                eval(&if_else.true_branch, ctx)?
+            let branch = if cond {
+                &if_else.true_branch
             } else {
-                eval(&if_else.false_branch, ctx)?
-            }
-        }
-        ExprKind::Block(block) => {
-            ctx.push_new_child_scope();
-            for r#let in &block.lets {
-                let value = eval(&r#let.assigned, ctx)?;
-                let bind = &r#let.bind_local;
-                ctx.bind_in_current_scope(&bind.name, value)
-                    .map_err(|e| e.to_interpret_err(&bind.name, bind.span))?;
-            }
-            let block_end_value = eval(&block.end_expr, ctx)?;
-            ctx.pop_scope();
-            block_end_value
+                &if_else.false_branch
+            };
+            eval(branch, ctx)?
         }
         ExprKind::FuncDef(func_def) => {
             let r#type = match eval(&func_def.bind_type_expr, ctx)? {
@@ -179,7 +206,7 @@ fn eval(expr: &ast::Expr, ctx: &mut InterpretContext) -> Result<Value, Interpret
                 .map(|r#let| {
                     let value = eval(&r#let.assigned, ctx)?;
                     let bind = &r#let.bind_local;
-                    ctx.bind_in_current_scope(&r#let.bind_local.name, value.clone())
+                    ctx.bind(&r#let.bind_local.name, value.clone())
                         .map_err(|e| e.to_interpret_err(&bind.name, bind.span))?;
                     Ok(value)
                 })
@@ -210,12 +237,38 @@ fn eval(expr: &ast::Expr, ctx: &mut InterpretContext) -> Result<Value, Interpret
             };
             ctx.pop_scope();
             Type::Struct(struct_type).into()
-        } // _ => {
-          //     return Err(InterpretError {
-          //         message: format!("Unimplemented expression kind"),
-          //         span: expr.span,
-          //     });
-          // }
+        }
+        ExprKind::FuncApp(func_app) => {
+            let func_value = eval(&func_app.func_expr, ctx)?;
+            let arg_value = eval(&func_app.applying_expr, ctx)?;
+            match func_value {
+                Value::Closure(closure) => {
+                    // Enter the closure's captured scope
+                    let saved_scope = ctx.current_scope;
+                    ctx.current_scope = closure.captures;
+                    ctx.push_new_child_scope();
+                    ctx.bind(&closure.binds, arg_value)
+                        .map_err(|e| e.to_interpret_err(&closure.binds, span))?;
+                    let result = eval(&closure.body, ctx)?;
+                    ctx.pop_scope();
+                    ctx.current_scope = saved_scope;
+                    result
+                }
+                Value::Builtin(b) => todo!("{:?} ({:?})", b, arg_value),
+                non_func => {
+                    return Err(InterpretError {
+                        message: format!("Expected function, got: {:?}", non_func),
+                        span: func_app.func_expr.span,
+                    });
+                }
+            }
+        }
+        ExprKind::MemberAccess(_) | ExprKind::StructInit(_) => {
+            return Err(InterpretError {
+                message: format!("Unimplemented expression kind: {:?}", expr.kind),
+                span: expr.span,
+            });
+        }
     };
     Ok(v)
 }

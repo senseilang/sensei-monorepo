@@ -1,5 +1,5 @@
 use crate::ast::*;
-use crate::comptime_value::{Closure, StructType, StructValue, Type, Value, VirtualMemoryPointer};
+use crate::comptime_value::{Builtin, Closure, StructType, StructValue, Type, Value, VirtualMemoryPointer};
 use std::fmt::{self, Display, Write};
 
 const INDENT: &str = "  ";
@@ -17,7 +17,7 @@ fn is_simple_type(ty: &Type) -> bool {
 /// Returns true if the value is simple (can be printed inline).
 fn is_simple_value(value: &Value) -> bool {
     match value {
-        Value::Void | Value::Num(_) | Value::Bool(_) | Value::MemoryPointer(_) => true,
+        Value::Void | Value::Num(_) | Value::Bool(_) | Value::MemoryPointer(_) | Value::Builtin(_) => true,
         Value::Type(ty) => is_simple_type(ty),
         Value::Struct(_) | Value::Closure(_) => false,
     }
@@ -38,7 +38,6 @@ fn is_simple(expr: &Expr) -> bool {
         ExprKind::FuncDef(_)
         | ExprKind::FuncApp(_)
         | ExprKind::IfThenElse(_)
-        | ExprKind::Block(_)
         | ExprKind::StructDef(_) => false,
 
         // StructInit is simple only if it has no fields
@@ -88,7 +87,6 @@ impl<'a, W: Write> PrettyPrinter<'a, W> {
             ExprKind::FuncDef(def) => self.print_func_def(def),
             ExprKind::FuncApp(_) => self.print_func_app(expr),
             ExprKind::IfThenElse(ite) => self.print_if_then_else(ite),
-            ExprKind::Block(block) => self.print_block(block),
             ExprKind::MemberAccess(_) => self.print_member_access(expr),
             ExprKind::StructDef(def) => self.print_struct_def(def),
             ExprKind::StructInit(init) => self.print_struct_init(init),
@@ -187,35 +185,14 @@ impl<'a, W: Write> PrettyPrinter<'a, W> {
         }
     }
 
-    fn print_block(&mut self, block: &Block) -> fmt::Result {
-        if block.lets.is_empty() {
-            write!(self.out, "(block ")?;
-            self.print_expr(&block.end_expr)?;
-            write!(self.out, ")")
-        } else {
-            write!(self.out, "(block")?;
-            self.indented(|this| {
-                for let_bind in &block.lets {
-                    writeln!(this.out)?;
-                    this.write_indent()?;
-                    this.print_let_bind(let_bind)?;
-                }
-                writeln!(this.out)?;
-                this.write_indent()?;
-                this.print_expr(&block.end_expr)
-            })?;
-            writeln!(self.out)?;
-            self.write_indent()?;
-            write!(self.out, ")")
-        }
-    }
-
     fn print_let_bind(&mut self, let_bind: &LetBind) -> fmt::Result {
         if let_bind.is_comptime {
             write!(self.out, "(comptime {}", let_bind.bind_local.name)?;
         } else {
             write!(self.out, "({}", let_bind.bind_local.name)?;
         }
+        write!(self.out, " ")?;
+        self.print_expr(&let_bind.bind_type_expr)?;
         write!(self.out, " ")?;
         self.print_expr(&let_bind.assigned)?;
         write!(self.out, ")")
@@ -312,7 +289,26 @@ impl<'a, W: Write> PrettyPrinter<'a, W> {
             Value::Type(ty) => self.print_type_value(ty),
             Value::Struct(s) => self.print_struct_value(s),
             Value::Closure(c) => self.print_closure_value(c),
+            Value::Builtin(b) => self.print_builtin(b),
         }
+    }
+
+    fn print_builtin(&mut self, builtin: &Builtin) -> fmt::Result {
+        let name = match builtin {
+            Builtin::MetaGetStructField => "@meta_get_struct_field",
+            Builtin::MetaGetTotalStructFields => "@meta_get_total_struct_fields",
+            Builtin::MetaIsStruct => "@meta_is_struct",
+            Builtin::Error => "@error",
+            Builtin::Add => "@add",
+            Builtin::Eq => "@eq",
+            Builtin::Malloc => "@malloc",
+            Builtin::MemWrite => "@mem_write",
+            Builtin::MemRead => "@mem_read",
+            Builtin::IoInputSize => "@io_input_size",
+            Builtin::IoInputCopy => "@io_input_copy",
+            Builtin::IoReturnExit => "@io_return_exit",
+        };
+        write!(self.out, "<builtin {}>", name)
     }
 
     fn print_memory_pointer(&mut self, ptr: &VirtualMemoryPointer) -> fmt::Result {
@@ -522,16 +518,18 @@ mod tests {
 
     #[test]
     fn test_block_empty() {
-        assert_eq!(pretty_print_ast(&parse("(block x)")), "(block x)");
+        // Block with no bindings just returns the expression
+        assert_eq!(pretty_print_ast(&parse("(block x)")), "x");
     }
 
     #[test]
     fn test_block_with_lets() {
-        let ast = parse("(block (x 10) (y 20) x)");
+        // Block is now desugared to nested FuncApp/FuncDef
+        let ast = parse("(block (x i32 10) (y i32 20) x)");
         let output = pretty_print_ast(&ast);
-        assert!(output.contains("(block"));
-        assert!(output.contains("(x 10)"));
-        assert!(output.contains("(y 20)"));
+        // Should be printed as nested function applications
+        assert!(output.contains("(func x i32"));
+        assert!(output.contains("(func y i32"));
     }
 
     #[test]
@@ -559,10 +557,10 @@ mod tests {
 
     #[test]
     fn test_struct_def_with_defs() {
-        let ast = parse("(struct_def (fields (x word)) (defs (new (func self word self))))");
+        let ast = parse("(struct_def (fields (x word)) (defs (new function (func self word self))))");
         let output = pretty_print_ast(&ast);
         assert!(output.contains("(defs"));
-        assert!(output.contains("(new (func self word self))"));
+        assert!(output.contains("(new function (func self word self))"));
     }
 
     #[test]

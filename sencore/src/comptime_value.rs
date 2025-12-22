@@ -55,10 +55,36 @@ pub struct VirtualMemoryPointer {
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub enum Builtin {
+    MetaGetStructField,
+    MetaGetTotalStructFields,
+    MetaIsStruct,
+    Error,
+
+    Add,
+    Eq,
+
+    Malloc,
+    MemWrite,
+    MemRead,
+
+    IoInputSize,
+    IoInputCopy,
+    IoReturnExit,
+}
+
+impl From<Builtin> for Value {
+    fn from(value: Builtin) -> Self {
+        Self::Builtin(value)
+    }
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum Value {
     Void,
     Num(i32),
     Bool(bool),
+    Builtin(Builtin),
     Struct(Box<StructValue>),
     MemoryPointer(VirtualMemoryPointer),
     Type(Box<Type>),

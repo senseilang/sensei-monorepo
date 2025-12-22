@@ -1,21 +1,21 @@
 (block
-    (or (func a bool (func b bool
+    (or function (func a bool (func b bool
         (if a true b)
     )))
-    (bytes (struct_def
+    (bytes type (struct_def
         (fields
             (ptr memptr)
             (len i32)
         )
     ))
-    (is_abi_dynamic (func comptime T type (
+    (is_abi_dynamic function (func comptime T type (
         if (or (or (eq T i32) (eq T void)) (eq T bool))
             false
         (/*else*/ if (eq T bytes)
             true
         (/*else*/ if (meta__is_struct T)
                 (block
-                (iter_fields (func i i32 (
+                (iter_fields function (func i i32 (
                     if (eq i (meta__struct_get_total_fields T))
                         false
                     (/*else*/ if (is_abi_dynamic
@@ -30,8 +30,8 @@
             (error ()) // void/error
         ))
     )))
-    (abi_list_head_size (func comptime S type (block
-        (sum_fields (func i i32 (func acc i32 (
+    (abi_list_head_size function (func comptime S type (block
+        (sum_fields function (func i i32 (func acc i32 (
             if (eq i (meta__struct_get_total_fields S))
                 acc
                 (sum_fields (add i 1) (add acc (abi_head_size
@@ -40,7 +40,7 @@
         ))))
         (sum_fields 0 0)
     )))
-    (abi_head_size (func comptime T type (
+    (abi_head_size function (func comptime T type (
         if (or (or (eq T i32) (eq T bool)) (eq T bytes))
             4
         (if (eq T void)
@@ -52,14 +52,14 @@
             (error ())
         ))
     )))
-    (MyStruct1 (struct_def
+    (MyStruct1 type (struct_def
         (fields
             (x i32)
             (y i32)
             (z i32)
         )
     ))
-    (MyStruct2 (struct_def
+    (MyStruct2 type (struct_def
         (fields
             (x bytes)
             (y i32)
@@ -68,14 +68,13 @@
             (b2 bool)
         )
     ))
-    (func _ void (block
-        (ret_buf (mem__malloc 24))
-        (_ (mem__write (add ret_buf  0) (abi_head_size MyStruct1)))
-        (_ (mem__write (add ret_buf  4) (abi_head_size MyStruct2)))
-        (_ (mem__write (add ret_buf  8) (abi_list_head_size MyStruct1)))
-        (_ (mem__write (add ret_buf 12) (abi_list_head_size MyStruct2)))
-        (_ (mem__write (add ret_buf 16) (abi_head_size i32)))
-        (_ (mem__write (add ret_buf 20) (abi_head_size void)))
-        (io__return_exit ret_buf 24)
-    ))
+
+    (ret_buf memptr (mem__malloc 24))
+    (_ void (mem__write (add ret_buf  0) (abi_head_size MyStruct1)))
+    (_ void (mem__write (add ret_buf  4) (abi_head_size MyStruct2)))
+    (_ void (mem__write (add ret_buf  8) (abi_list_head_size MyStruct1)))
+    (_ void (mem__write (add ret_buf 12) (abi_list_head_size MyStruct2)))
+    (_ void (mem__write (add ret_buf 16) (abi_head_size i32)))
+    (_ void (mem__write (add ret_buf 20) (abi_head_size void)))
+    (io__return_exit ret_buf 24)
 )
