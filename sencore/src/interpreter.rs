@@ -1,14 +1,11 @@
 use crate::Span;
-use crate::ast;
-use crate::ast::IfThenElse;
-use crate::ast::MemberAccess;
+use crate::ast::*;
 use crate::comptime_value::*;
-use std::collections::HashMap;
 
-pub fn interpret(create_runtime: &ast::Expr) -> Result<Value, InterpretError> {
-    let mut ctx = InterpretContext::new();
+pub fn interpret(runtime: &Expr) -> Result<Expr, InterpretError> {
+    let mut interpreter = Interpreter::new();
 
-    eval(create_runtime, &mut ctx)
+    interpreter.partial_eval(runtime)
 }
 
 #[derive(Debug, Clone)]
@@ -19,13 +16,20 @@ pub struct InterpretError {
 
 #[derive(Debug, Clone)]
 struct Scope {
-    parent_scope: Option<ScopeId>,
-    binds: HashMap<Box<str>, Value>,
+    parent: ScopeId,
+    bind: Box<str>,
+    value: ValueOrFree,
 }
 
 #[derive(Debug, Clone)]
-struct InterpretContext {
-    scopes: Vec<Scope>,
+enum ValueOrFree {
+    Value(Value),
+    Free,
+}
+
+#[derive(Debug, Clone)]
+struct Interpreter {
+    scope_tree: Vec<Scope>,
     current_scope: ScopeId,
 }
 
@@ -41,261 +45,295 @@ impl OverlappingBindNameInScope {
     }
 }
 
-impl InterpretContext {
+fn short_fmt(value: impl std::fmt::Debug, max_len: usize) -> String {
+    let str = format!("{:?}", value);
+    if str.len() > max_len {
+        format!("{}...", &str[..max_len])
+    } else {
+        str
+    }
+}
+
+impl Interpreter {
+    const ROOT_SCOPE: ScopeId = ScopeId(0);
+
     fn new() -> Self {
-        let root_scope = Scope {
-            parent_scope: None,
-            binds: HashMap::new(),
-        };
-        let mut ctx = Self {
-            scopes: vec![root_scope],
-            current_scope: ScopeId(0),
+        let scope_tree = Vec::with_capacity(128);
+        let mut i = Self {
+            scope_tree,
+            current_scope: Self::ROOT_SCOPE,
         };
 
         // Types
-        ctx.bind("void", Type::Void).unwrap();
-        ctx.bind("i32", Type::Num).unwrap();
-        ctx.bind("bool", Type::Bool).unwrap();
-        ctx.bind("memptr", Type::MemoryPointer).unwrap();
-        ctx.bind("type", Type::Type).unwrap();
-        ctx.bind("fn", Type::Function).unwrap();
+        i.bind("void", Type::Void);
+        i.bind("i32", Type::Num);
+        i.bind("bool", Type::Bool);
+        i.bind("memptr", Type::MemoryPointer);
+        i.bind("type", Type::Type);
+        i.bind("fn", Type::Function);
 
-        // Builtins
-        ctx.bind("meta__struct_get_field", Builtin::MetaGetStructField)
-            .unwrap();
-        ctx.bind("meta__is_struct", Builtin::MetaIsStruct).unwrap();
-        ctx.bind(
-            "meta__struct_get_total_fields",
-            Builtin::MetaGetTotalStructFields,
-        )
-        .unwrap();
-        ctx.bind("error", Builtin::Error).unwrap();
-        ctx.bind("add", Builtin::Add).unwrap();
-        ctx.bind("eq", Builtin::Eq).unwrap();
-        ctx.bind("mem__malloc", Builtin::Malloc).unwrap();
-        ctx.bind("mem__write", Builtin::MemWrite).unwrap();
-        ctx.bind("mem__read", Builtin::MemRead).unwrap();
-        ctx.bind("io__input_size", Builtin::IoInputSize).unwrap();
-        ctx.bind("io__input_copy", Builtin::IoInputCopy).unwrap();
-        ctx.bind("io__return_exit", Builtin::IoReturnExit).unwrap();
-
-        ctx
+        i
     }
-    fn get(&self, name: impl AsRef<str>) -> Option<&Value> {
-        let name = name.as_ref();
-        let mut current = Some(self.current_scope);
-        while let Some(scope) = current {
-            let scope = &self.scopes[scope.0];
-            if let Some(value) = scope.binds.get(name) {
-                return Some(value);
+
+    fn bind(&mut self, name: impl AsRef<str>, value: impl Into<Value>) {
+        let parent = self.current_scope;
+        self.scope_tree.push(Scope {
+            parent,
+            bind: name.as_ref().into(),
+            value: ValueOrFree::Value(value.into()),
+        });
+        self.current_scope = ScopeId(self.scope_tree.len());
+    }
+
+    fn bind_free(&mut self, name: impl AsRef<str>) {
+        let parent = self.current_scope;
+        self.scope_tree.push(Scope {
+            parent,
+            bind: name.as_ref().into(),
+            value: ValueOrFree::Free,
+        });
+        self.current_scope = ScopeId(self.scope_tree.len());
+    }
+
+    fn get(&self, name: &str) -> Option<&ValueOrFree> {
+        let mut scope_id = self.current_scope;
+        while scope_id != Self::ROOT_SCOPE {
+            let scope = &self.scope_tree[scope_id.0 - 1];
+            if name == &scope.bind as &str {
+                return Some(&scope.value);
             }
-            current = scope.parent_scope;
+            scope_id = scope.parent;
         }
-        None
+        return None;
     }
 
-    fn bind(
-        &mut self,
-        name: impl AsRef<str>,
-        value: impl Into<Value>,
-    ) -> Result<(), OverlappingBindNameInScope> {
-        let name = name.as_ref();
-        let scope = &mut self.scopes[self.current_scope.0];
-        match scope.binds.insert(name.into(), value.into()) {
-            Some(_) => Err(OverlappingBindNameInScope),
-            None => Ok(()),
-        }
-    }
-
-    fn push_new_child_scope(&mut self) {
-        let new_child_scope = Scope {
-            parent_scope: Some(self.current_scope),
-            binds: HashMap::new(),
-        };
-        let scope_id = ScopeId(self.scopes.len());
-        self.scopes.push(new_child_scope);
-        self.current_scope = scope_id;
-    }
-
-    fn pop_scope(&mut self) {
-        let parent = self.scopes[self.current_scope.0]
-            .parent_scope
-            .expect("tried to pop root scope");
-        self.current_scope = parent;
-    }
-}
-
-fn eval(expr: &ast::Expr, ctx: &mut InterpretContext) -> Result<Value, InterpretError> {
-    use ast::ExprKind;
-    let span = expr.span;
-    let v = match &expr.kind {
-        ExprKind::ConstVoid => Value::Void,
-        ExprKind::ConstInt(x) => Value::Num(*x),
-        ExprKind::ConstBool(x) => Value::Bool(*x),
-        ExprKind::Var(name) => ctx.get(&name).cloned().ok_or_else(|| InterpretError {
-            message: format!("Reference {name:?} not found"),
-            span,
-        })?,
-        ExprKind::Value(value) => *(value.clone()),
-        ExprKind::IfThenElse(if_else) => {
-            let cond = match eval(&if_else.condition, ctx)? {
-                Value::Bool(cond) => cond,
-                non_bool => {
+    fn comptime_eval(&mut self, expr: &Expr) -> Result<Value, InterpretError> {
+        let span = expr.span;
+        let v = match &expr.kind {
+            ExprKind::Value(v) => Value::clone(v),
+            ExprKind::Var(name) => match self.get(&name) {
+                Some(ValueOrFree::Value(v)) => v.clone(),
+                Some(ValueOrFree::Free) => {
                     return Err(InterpretError {
-                        message: format!(
-                            "Expected if-else condition to be boolean, got: {:?}",
-                            non_bool
-                        ),
+                        message: format!("Comptime expression references free variable {:?}", name),
                         span,
                     });
                 }
-            };
-            let branch = if cond {
-                &if_else.true_branch
-            } else {
-                &if_else.false_branch
-            };
-            eval(branch, ctx)?
-        }
-        ExprKind::FuncDef(func_def) => {
-            let r#type = match eval(&func_def.bind_type_expr, ctx)? {
-                Value::Type(r#type) => r#type,
-                non_type_value => {
+                None => {
                     return Err(InterpretError {
-                        message: format!(
-                            "Expected closure type expression to evaluate to type, got: {:?}",
-                            non_type_value
-                        ),
-                        span: func_def.bind_type_expr.span,
+                        message: format!("Undefined reference {:?}", name),
+                        span,
                     });
                 }
-            };
-            Value::Closure(Box::new(Closure {
-                r#type: *r#type,
-                binds: func_def.func_bind.name.clone(),
-                body: partial_eval(&func_def.body, ctx), // TODO (partial eval)
-                captures: ctx.current_scope,
-            }))
-        }
-        ExprKind::StructDef(struct_def) => {
-            ctx.push_new_child_scope();
-            let defs = struct_def
-                .associated_defs
-                .iter()
-                .map(|r#let| {
-                    let value = eval(&r#let.assigned, ctx)?;
-                    let bind = &r#let.bind_local;
-                    ctx.bind(&r#let.bind_local.name, value.clone())
-                        .map_err(|e| e.to_interpret_err(&bind.name, bind.span))?;
-                    Ok(value)
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-            let fields = struct_def
-                .fields
-                .iter()
-                .map(|field| {
-                    let r#type = match eval(&field.r#type, ctx)? {
-                        Value::Type(r#type) => r#type,
-                        non_type_value => {
-                            return Err(InterpretError {
-                                message: format!(
-                                    "Expected struct field type to evaluate to type, got: {:?}",
-                                    non_type_value
-                                ),
-                                span: field.r#type.span,
-                            });
-                        }
-                    };
-                    Ok((field.name.name.clone(), *r#type))
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-            let struct_type = StructType {
-                def_uuid: struct_def.def_uuid,
-                defs,
-                fields,
-            };
-            ctx.pop_scope();
-            Type::Struct(struct_type).into()
-        }
-        ExprKind::FuncApp(func_app) => {
-            let func_value = eval(&func_app.func_expr, ctx)?;
-            let arg_value = eval(&func_app.applying_expr, ctx)?;
-            match func_value {
-                Value::Closure(closure) => {
-                    // Enter the closure's captured scope
-                    let saved_scope = ctx.current_scope;
-                    ctx.current_scope = closure.captures;
-                    ctx.push_new_child_scope();
-                    ctx.bind(&closure.binds, arg_value)
-                        .map_err(|e| e.to_interpret_err(&closure.binds, span))?;
-                    let result = eval(&closure.body, ctx)?;
-                    ctx.pop_scope();
-                    ctx.current_scope = saved_scope;
-                    result
-                }
-                Value::Builtin(b) => todo!("{:?} ({:?})", b, arg_value),
-                non_func => {
+            },
+            ExprKind::IfThenElse(if_else) => {
+                let cond = self.comptime_eval(&if_else.condition)?;
+                let Value::Bool(cond) = cond else {
                     return Err(InterpretError {
-                        message: format!("Expected function, got: {:?}", non_func),
-                        span: func_app.func_expr.span,
+                        message: format!("Expected boolean, got: {:?}", cond),
+                        span,
                     });
+                };
+                if cond {
+                    self.comptime_eval(&if_else.true_branch)?
+                } else {
+                    self.comptime_eval(&if_else.false_branch)?
                 }
             }
+            ExprKind::FuncDef(func_def) => self.eval_func_def(&func_def)?.into(),
+            ExprKind::FuncApp(func_app) => {
+                let func = self.comptime_eval(&func_app.func_expr)?;
+                let apply = self.comptime_eval(&func_app.applying_expr)?;
+                match func {
+                    Value::Closure(closure) => self.eval_closure(*closure, apply, span)?,
+                    non_func => {
+                        return Err(InterpretError {
+                            message: format!("Expected function, got: {:?}", non_func),
+                            span,
+                        });
+                    }
+                }
+            }
+            ExprKind::StructDef(struct_def) => {
+                let capture = self.comptime_eval(&struct_def.capture)?;
+                let fields = struct_def
+                    .fields
+                    .iter()
+                    .map(|field| {
+                        let type_value = self.comptime_eval(&field.r#type)?;
+                        let r#type = Self::as_type(type_value, field.span)?;
+                        Ok((field.name.name.clone(), r#type))
+                    })
+                    .collect::<Result<_, _>>()?;
+                Value::Type(Box::new(Type::Struct(StructType {
+                    def_uuid: struct_def.def_uuid,
+                    fields,
+                    capture,
+                })))
+            }
+            ExprKind::BuiltinCall(call) => {
+                let mut values = call.arguments.iter().map(|arg| self.comptime_eval(arg));
+                match call.builtin {
+                    Builtin::Eq => {
+                        let x = values.next().expect("missing eq arg")?;
+                        let y = values.next().expect("missing eq arg")?;
+                        Value::Bool(x == y)
+                    }
+                    builtin => {
+                        return Err(InterpretError {
+                            message: format!("comptime: unimplemented builtin <{:?}>", builtin),
+                            span: expr.span,
+                        });
+                    }
+                }
+            }
+            ExprKind::MemberAccess(_) | ExprKind::StructInit(_) => {
+                return Err(InterpretError {
+                    message: format!("comptime: unimplemented: <{}>", short_fmt(&expr.kind, 60)),
+                    span: expr.span,
+                });
+            }
+        };
+
+        Ok(v)
+    }
+
+    fn as_type(value: Value, error_span: Span<usize>) -> Result<Type, InterpretError> {
+        match value {
+            Value::Type(r#type) => Ok(*r#type),
+            non_type => Err(InterpretError {
+                message: format!(
+                    "Expected closure type expression to evaluate to type, got: {:?}",
+                    non_type.get_type()
+                ),
+                span: error_span,
+            }),
         }
-        ExprKind::MemberAccess(_) | ExprKind::StructInit(_) => {
+    }
+
+    fn eval_func_def(&mut self, func_def: &FuncDef) -> Result<Closure, InterpretError> {
+        let type_value = self.comptime_eval(&func_def.bind_type_expr)?;
+        let r#type = Self::as_type(type_value, func_def.bind_type_expr.span)?;
+        Ok(Closure {
+            r#type,
+            is_comptime: func_def.is_comptime,
+            binds: func_def.func_bind.name.clone(),
+            body: func_def.body.clone(),
+            captures: self.current_scope,
+        })
+    }
+
+    fn eval_closure(
+        &mut self,
+        closure: Closure,
+        apply: Value,
+        span: Span<usize>,
+    ) -> Result<Value, InterpretError> {
+        let apply_type = apply.get_type();
+        if apply_type != closure.r#type {
             return Err(InterpretError {
-                message: format!("Unimplemented expression kind: {:?}", expr.kind),
-                span: expr.span,
+                message: format!(
+                    "Type mismatch: expected {:?}, got: {:?}",
+                    apply_type, closure.r#type
+                ),
+                span,
             });
         }
-    };
-    Ok(v)
-}
 
-fn partial_eval(expr: &ast::Expr, ctx: &mut InterpretContext) -> ast::Expr {
-    use ast::{Expr, ExprKind};
-    let new_kind = match &expr.kind {
-        ExprKind::ConstVoid => ExprKind::Value(Box::new(Value::Void)),
-        ExprKind::ConstInt(x) => ExprKind::Value(Box::new(Value::Num(*x))),
-        ExprKind::ConstBool(b) => ExprKind::Value(Box::new(Value::Bool(*b))),
-        ExprKind::Var(name) => match ctx.get(name) {
-            Some(v) => ExprKind::Value(Box::new(v.clone())),
-            None => ExprKind::Var(name.clone()),
-        },
-        ExprKind::MemberAccess(member_access) => {
-            let r#struct = partial_eval(&member_access.r#struct, ctx);
-            ExprKind::MemberAccess(Box::new(MemberAccess {
-                r#struct,
-                member: member_access.member.clone(),
-            }))
-        }
-        ExprKind::IfThenElse(if_then_else) => {
-            let condition = partial_eval(&if_then_else.condition, ctx);
-            let known_bool = match &condition.kind {
-                ExprKind::Value(value) => match value as &Value {
-                    Value::Bool(b) => Some(*b),
-                    _ => None,
-                },
-                _ => None,
-            };
-            match known_bool {
-                Some(true) => return partial_eval(&if_then_else.true_branch, ctx),
-                Some(false) => return partial_eval(&if_then_else.false_branch, ctx),
-                None => {
-                    let true_branch = partial_eval(&if_then_else.true_branch, ctx);
-                    let false_branch = partial_eval(&if_then_else.false_branch, ctx);
-                    ExprKind::IfThenElse(Box::new(IfThenElse {
-                        condition,
-                        true_branch,
-                        false_branch,
+        let return_scope = self.current_scope;
+        self.current_scope = closure.captures;
+        self.bind(closure.binds, apply);
+        let body_res = self.comptime_eval(&closure.body);
+        self.current_scope = return_scope;
+
+        body_res
+    }
+
+    fn eval_builtin(&mut self, _bcall: &BuiltinCall) -> Result<Value, InterpretError> {
+        todo!("eval_builtin")
+    }
+
+    fn partial_eval(&mut self, expr: &Expr) -> Result<Expr, InterpretError> {
+        let span = expr.span;
+        let kind = match &expr.kind {
+            ExprKind::Var(name) => {
+                let bound_value = self.get(name).ok_or_else(|| InterpretError {
+                    message: format!("Undefined name {:?}", name),
+                    span,
+                })?;
+
+                match bound_value {
+                    ValueOrFree::Value(v) => ExprKind::Value(Box::new(v.clone())),
+                    ValueOrFree::Free => ExprKind::Var(name.clone()),
+                }
+            }
+            ExprKind::Value(v) => ExprKind::Value(v.clone()),
+            ExprKind::BuiltinCall(bcall) => {
+                if bcall.builtin.comptime_only() {
+                    self.eval_builtin(bcall)?.into()
+                } else {
+                    let arguments = bcall
+                        .arguments
+                        .iter()
+                        .map(|arg| self.partial_eval(arg))
+                        .collect::<Result<_, _>>()?;
+                    ExprKind::BuiltinCall(Box::new(BuiltinCall {
+                        builtin: bcall.builtin,
+                        arguments,
                     }))
                 }
             }
-        }
-        _ => expr.kind.clone(),
-    };
-    Expr {
-        kind: new_kind,
-        span: expr.span,
+            ExprKind::FuncApp(func_app) => {
+                let func_expr = self.partial_eval(&func_app.func_expr)?;
+                let applying_expr = self.partial_eval(&func_app.applying_expr)?;
+                let closure = match &func_expr.kind {
+                    ExprKind::Value(v) => match v as &Value {
+                        Value::Closure(closure) => Some(closure.clone()),
+                        _ => None,
+                    },
+                    ExprKind::FuncDef(_) => {
+                        unreachable!("func defs should be evaluated to closures?")
+                    }
+                    _ => None,
+                };
+                match closure {
+                    Some(closure) if closure.is_comptime => {
+                        let ExprKind::Value(apply_value) = applying_expr.kind else {
+                            return Err(InterpretError {
+                                message: format!("Applying non-value to comptime closure"),
+                                span,
+                            });
+                        };
+                        self.eval_closure(*closure, *apply_value, span)?.into()
+                    }
+                    _ => ExprKind::FuncApp(Box::new(FuncApp {
+                        func_expr,
+                        applying_expr,
+                    })),
+                }
+            }
+            ExprKind::FuncDef(func_def) => {
+                let mut closure = self.eval_func_def(&func_def)?;
+                if !closure.is_comptime {
+                    let return_scope = self.current_scope;
+                    self.current_scope = closure.captures;
+                    self.bind_free(&func_def.func_bind.name);
+                    closure.body = self.partial_eval(&closure.body)?;
+                    self.current_scope = return_scope;
+                }
+                closure.into()
+            }
+            ExprKind::IfThenElse(_) => expr.kind.clone(),
+            _ => {
+                return Err(InterpretError {
+                    message: format!(
+                        "partial-eval: expr type <{}>, not yet implemented",
+                        short_fmt(&expr.kind, 60)
+                    ),
+                    span,
+                });
+            }
+        };
+        Ok(Expr { kind, span })
     }
 }

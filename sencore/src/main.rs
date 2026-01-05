@@ -30,6 +30,8 @@ fn main() {
         }
     };
 
+    println!("{}", ast);
+
     let value = match sencore::interpreter::interpret(&ast.runtime_main) {
         Ok(value) => value,
         Err(e) => {

@@ -1,4 +1,5 @@
 use crate::ast::*;
+use crate::comptime_value::{Builtin, Value};
 use crate::lexer::{Lexer, Token};
 
 use crate::span::Span;
@@ -191,7 +192,7 @@ impl<'src> Parser<'src> {
     }
 }
 
-/// (apply e1 e2 ... eN) => left-fold into FuncApp: ((e1 e2) e3) ... eN
+/// (e1 e2 ... eN) => left-fold into FuncApp: ((e1 e2) e3) ... eN
 fn lower_apply(
     ctx: &mut LoweringCtx,
     span: Span<usize>,
@@ -407,105 +408,53 @@ fn lower_attr(
     Ok(acc)
 }
 
-/// (struct_def (fields (<name> <type>)*) (defs <def_node>*))
+/// (struct_def capture (<name> <type>)*)
 fn lower_struct(
     ctx: &mut LoweringCtx,
     span: Span<usize>,
     args: &[SNode],
 ) -> Result<Expr, ParseError> {
-    let (fields_node, defs) = match args {
-        [fields_node] => (fields_node, None),
-        [fields_node, defs_node] => (fields_node, Some(defs_node)),
-        _ => {
-            return Err(ParseError {
-                message: format!(
-                    "struct requires exactly 2 arguments (fields, defs), got {}",
-                    args.len()
-                ),
-                span,
-            });
-        }
-    };
-
-    // Parse fields: (fields (<name> <type>)*)
-    let fields_list = expect_list(fields_node)?;
-    let fields_span = fields_node.span;
-
-    let (fields_keyword, field_entries) = fields_list.split_first().ok_or_else(|| ParseError {
-        message: "fields list cannot be empty, must start with 'fields' keyword".into(),
-        span: fields_span,
-    })?;
-
-    match &fields_keyword.kind {
-        SNodeKind::Name("fields") => {}
-        _ => {
-            return Err(ParseError {
-                message: format!("Expected 'fields' keyword, got {:?}", fields_keyword.kind),
-                span: fields_keyword.span,
-            });
-        }
-    }
-
-    let mut fields = Vec::with_capacity(field_entries.len());
-    for field_node in field_entries {
-        let field_list = expect_list(field_node)?;
-        let [name_node, type_node] = field_list else {
-            return Err(ParseError {
-                message: format!(
-                    "field must have exactly 2 elements (name, type), got {}",
-                    field_list.len()
-                ),
-                span: field_node.span,
-            });
-        };
-
-        let name = expect_name(name_node)?;
-        let r#type = snode_to_expr(ctx, type_node)?;
-        fields.push(StructField {
-            span: field_node.span,
-            name,
-            r#type,
+    let [capture, fields @ ..] = args else {
+        return Err(ParseError {
+            message: format!(
+                "struct requires at least 1 argument (capture, fields*), got {}",
+                args.len()
+            ),
+            span,
         });
-    }
-
-    // Parse defs: (defs <def_node>*) - optional, defaults to empty
-    let associated_defs = match defs {
-        Some(defs_node) => {
-            let defs_list = expect_list(defs_node)?;
-
-            let (defs_keyword, def_entries) =
-                defs_list.split_first().ok_or_else(|| ParseError {
-                    message: "defs list cannot be empty, must start with 'defs' keyword".into(),
-                    span: defs_node.span,
-                })?;
-
-            match &defs_keyword.kind {
-                SNodeKind::Name("defs") => {}
-                _ => {
-                    return Err(ParseError {
-                        message: format!("Expected 'defs' keyword, got {:?}", defs_keyword.kind),
-                        span: defs_keyword.span,
-                    });
-                }
-            }
-
-            def_entries
-                .iter()
-                .map(|def_node| lower_let_bind(ctx, def_node))
-                .collect::<Result<Vec<_>, _>>()?
-        }
-        None => Vec::new(),
     };
 
-    let def_uuid = ctx.alloc_struct_id();
+    let capture = snode_to_expr(ctx, capture)?;
+
+    let fields = fields
+        .iter()
+        .map(|field_node| {
+            let field_components = expect_list(field_node)?;
+            let [name_node, type_node] = field_components else {
+                return Err(ParseError {
+                    message: format!(
+                        "field must have exactly 2 elements (name, type), got {}",
+                        field_components.len()
+                    ),
+                    span: field_node.span,
+                });
+            };
+            let name = expect_name(name_node)?;
+            let r#type = snode_to_expr(ctx, type_node)?;
+            Ok(StructField {
+                span: field_node.span,
+                name,
+                r#type,
+            })
+        })
+        .collect::<Result<_, _>>()?;
 
     Ok(Expr {
         span,
         kind: ExprKind::StructDef(Box::new(StructDef {
-            def_uuid,
-            fields_span,
+            def_uuid: ctx.alloc_struct_id(),
+            capture,
             fields,
-            associated_defs,
         })),
     })
 }
@@ -561,40 +510,80 @@ fn snode_to_expr(ctx: &mut LoweringCtx, node: &SNode) -> Result<Expr, ParseError
             kind,
         })
     };
+    let value = |v| expr(ExprKind::Value(Box::new(v)));
+
     let list = match &node.kind {
-        SNodeKind::Num(x) => return expr(ExprKind::ConstInt(*x)),
-        SNodeKind::Bool(b) => return expr(ExprKind::ConstBool(*b)),
+        SNodeKind::Num(x) => return value(Value::Num(*x)),
+        SNodeKind::Bool(b) => return value(Value::Bool(*b)),
         SNodeKind::Name(name) => return expr(ExprKind::Var((*name).into())),
         SNodeKind::List(list) => list,
     };
     let [first, args @ ..] = list.as_slice() else {
-        return expr(ExprKind::ConstVoid);
+        return value(Value::Void);
     };
-    let SNodeKind::Name(form_name) = &first.kind else {
+
+    let &SNodeKind::Name(name) = &first.kind else {
         if args.is_empty() {
-            // Single non-name element (e.g. number, nested list)
             return snode_to_expr(ctx, first);
         } else {
-            // Expression in function position: treat as function application
-            // ((fix f ...) x y) => apply the result of (fix f ...) to x, y
             return lower_apply(ctx, node.span, list);
         }
     };
-    match *form_name {
-        "apply" => Ok(lower_apply(ctx, node.span, args)?),
-        "funcdef" => Ok(lower_func(ctx, node.span, args)?),
-        "recfuncdef" => Ok(lower_recursive_func(ctx, node.span, args)?),
-        "if" => Ok(lower_if(ctx, node.span, args)?),
-        "block" => Ok(lower_block(ctx, node.span, args)?),
-        "attr" => Ok(lower_attr(ctx, node.span, args)?),
-        "struct_def" => Ok(lower_struct(ctx, node.span, args)?),
-        "struct_init" => Ok(lower_struct_init(ctx, node.span, args)?),
-        _ => {
-            // Unknown name: treat as implicit function application
-            // (f x y) => ((f x) y)
-            lower_apply(ctx, node.span, list)
+
+    let e = match name {
+        "funcdef" => lower_func(ctx, node.span, args)?,
+        "recfuncdef" => lower_recursive_func(ctx, node.span, args)?,
+        "if" => lower_if(ctx, node.span, args)?,
+        "block" => lower_block(ctx, node.span, args)?,
+        "attr" => lower_attr(ctx, node.span, args)?,
+        "struct_def" => lower_struct(ctx, node.span, args)?,
+        "struct_init" => lower_struct_init(ctx, node.span, args)?,
+        "meta__struct_get_field" => lower_builtin(ctx, args, Builtin::GetStructField, node.span)?,
+        "meta__is_struct" => lower_builtin(ctx, args, Builtin::IsStruct, node.span)?,
+        "meta__struct_get_total_fields" => {
+            lower_builtin(ctx, args, Builtin::GetTotalStructFields, node.span)?
         }
+        "error" => lower_builtin(ctx, args, Builtin::Error, node.span)?,
+        "add" => lower_builtin(ctx, args, Builtin::Add, node.span)?,
+        "eq" => lower_builtin(ctx, args, Builtin::Eq, node.span)?,
+        "mem__malloc" => lower_builtin(ctx, args, Builtin::Malloc, node.span)?,
+        "mem__write" => lower_builtin(ctx, args, Builtin::MemWrite, node.span)?,
+        "mem__read" => lower_builtin(ctx, args, Builtin::MemRead, node.span)?,
+        "io__input_size" => lower_builtin(ctx, args, Builtin::InputSize, node.span)?,
+        "io__input_copy" => lower_builtin(ctx, args, Builtin::InputCopy, node.span)?,
+        "io__return_exit" => lower_builtin(ctx, args, Builtin::ReturnExit, node.span)?,
+        _ => lower_apply(ctx, node.span, list)?,
+    };
+    Ok(e)
+}
+
+fn lower_builtin(
+    ctx: &mut LoweringCtx,
+    args: &[SNode],
+    builtin: Builtin,
+    span: Span<usize>,
+) -> Result<Expr, ParseError> {
+    if args.len() != builtin.arg_count() {
+        return Err(ParseError {
+            message: format!(
+                "Invalid argument count for builtin {:?}, expected: {}, got: {}",
+                builtin,
+                builtin.arg_count(),
+                args.len()
+            ),
+            span,
+        });
     }
+
+    let arguments = args
+        .iter()
+        .map(|arg| snode_to_expr(ctx, arg))
+        .collect::<Result<_, _>>()?;
+
+    Ok(Expr {
+        span,
+        kind: ExprKind::BuiltinCall(Box::new(BuiltinCall { builtin, arguments })),
+    })
 }
 
 fn lower_let_bind(ctx: &mut LoweringCtx, node: &SNode) -> Result<LetBind, ParseError> {
@@ -644,13 +633,13 @@ mod tests {
     #[test]
     fn test_lower_constants() {
         let ast = parse_and_lower("(42)").unwrap();
-        assert!(matches!(ast.runtime_main.kind, ExprKind::ConstInt(42)));
+        assert!(matches!(&ast.runtime_main.kind, ExprKind::Value(v) if matches!(&**v, Value::Num(42))));
 
         let ast = parse_and_lower("(true)").unwrap();
-        assert!(matches!(ast.runtime_main.kind, ExprKind::ConstBool(true)));
+        assert!(matches!(&ast.runtime_main.kind, ExprKind::Value(v) if matches!(&**v, Value::Bool(true))));
 
         let ast = parse_and_lower("(())").unwrap();
-        assert!(matches!(ast.runtime_main.kind, ExprKind::ConstVoid));
+        assert!(matches!(&ast.runtime_main.kind, ExprKind::Value(v) if matches!(&**v, Value::Void)));
     }
 
     #[test]
@@ -702,7 +691,7 @@ mod tests {
 
     #[test]
     fn test_lower_func() {
-        let ast = parse_and_lower("(func x word x)").unwrap();
+        let ast = parse_and_lower("(funcdef x word x)").unwrap();
         assert!(matches!(ast.runtime_main.kind, ExprKind::FuncDef(_)));
     }
 
@@ -722,37 +711,12 @@ mod tests {
 
     #[test]
     fn test_lower_struct() {
-        let ast = parse_and_lower("(struct_def (fields (x word) (y bool)) (defs))").unwrap();
+        let ast = parse_and_lower("(struct_def () (x word) (y bool))").unwrap();
         let ExprKind::StructDef(s) = &ast.runtime_main.kind else {
             panic!("Expected StructDef");
         };
         assert_eq!(s.fields.len(), 2);
         assert_eq!(s.def_uuid, 0);
-    }
-
-    #[test]
-    fn test_lower_struct_without_defs() {
-        let ast = parse_and_lower("(struct_def (fields (x word) (y bool)))").unwrap();
-        let ExprKind::StructDef(s) = &ast.runtime_main.kind else {
-            panic!("Expected StructDef");
-        };
-        assert_eq!(s.fields.len(), 2);
-        assert_eq!(s.associated_defs.len(), 0);
-    }
-
-    #[test]
-    fn test_lower_struct_with_defs() {
-        let ast = parse_and_lower(
-            "(struct_def (fields (x word)) (defs (new function (func self word self)) (get_x i32 42)))",
-        )
-        .unwrap();
-        let ExprKind::StructDef(s) = &ast.runtime_main.kind else {
-            panic!("Expected StructDef");
-        };
-        assert_eq!(s.fields.len(), 1);
-        assert_eq!(s.associated_defs.len(), 2);
-        assert_eq!(&*s.associated_defs[0].bind_local.name, "new");
-        assert_eq!(&*s.associated_defs[1].bind_local.name, "get_x");
     }
 
     #[test]
@@ -776,35 +740,18 @@ mod tests {
     }
 
     #[test]
-    fn test_lower_fix() {
-        let ast = parse_and_lower("(fix factorial (func n i32 42))").unwrap();
-        let ExprKind::Fix(fix_bind) = &ast.runtime_main.kind else {
-            panic!("Expected Fix");
-        };
-        assert_eq!(&*fix_bind.name.name, "factorial");
-        assert!(matches!(fix_bind.expr.kind, ExprKind::FuncDef(_)));
-    }
-
-    #[test]
-    fn test_fix_requires_two_args() {
-        assert!(parse_and_lower("(fix)").is_err());
-        assert!(parse_and_lower("(fix name)").is_err());
-        assert!(parse_and_lower("(fix name expr extra)").is_err());
-    }
-
-    #[test]
     fn test_keyword_without_args_errors() {
         // Keywords without required arguments should error, not become Var
         assert!(parse_and_lower("(block)").is_err());
-        assert!(parse_and_lower("(func)").is_err());
-        assert!(parse_and_lower("(fix)").is_err());
+        assert!(parse_and_lower("(funcdef)").is_err());
         assert!(parse_and_lower("(if)").is_err());
-        assert!(parse_and_lower("(apply)").is_err());
         assert!(parse_and_lower("(attr)").is_err());
         assert!(parse_and_lower("(struct_def)").is_err());
 
-        // Non-keywords should still work as Var
+        // Non-keywords should still work as Var (note: "apply" is not a keyword)
         let ast = parse_and_lower("(foo)").unwrap();
         assert!(matches!(&ast.runtime_main.kind, ExprKind::Var(name) if &**name == "foo"));
+        let ast = parse_and_lower("(apply)").unwrap();
+        assert!(matches!(&ast.runtime_main.kind, ExprKind::Var(name) if &**name == "apply"));
     }
 }

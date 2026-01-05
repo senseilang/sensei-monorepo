@@ -1,3 +1,5 @@
+use crate::comptime_value::{Builtin, Value};
+
 type Span = crate::Span<usize>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -48,9 +50,8 @@ pub type StructDefUniqueId = u32;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct StructDef {
     pub def_uuid: StructDefUniqueId,
-    pub fields_span: Span,
     pub fields: Vec<StructField>,
-    pub associated_defs: Vec<LetBind>,
+    pub capture: Expr,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -80,21 +81,32 @@ pub struct MemberAccess {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct BuiltinCall {
+    pub builtin: Builtin,
+    pub arguments: Vec<Expr>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ExprKind {
-    /* Leaf Expressions */
-    ConstVoid,
-    ConstInt(i32),
-    ConstBool(bool),
     Var(Box<str>),
+    Value(Box<Value>),
 
-    Value(Box<crate::comptime_value::Value>),
-
+    BuiltinCall(Box<BuiltinCall>),
     MemberAccess(Box<MemberAccess>),
     IfThenElse(Box<IfThenElse>),
     FuncApp(Box<FuncApp>),
     FuncDef(Box<FuncDef>),
     StructDef(Box<StructDef>),
     StructInit(Box<StructInit>),
+}
+
+impl<T> From<T> for ExprKind
+where
+    T: Into<Value>,
+{
+    fn from(value: T) -> Self {
+        Self::Value(Box::new(value.into()))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

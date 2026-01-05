@@ -24,7 +24,6 @@ pub fn byte_offset_to_location(source: &str, offset: usize) -> SourceLocation {
     SourceLocation { line, column: col }
 }
 
-
 pub fn format_error(source: &str, message: &str, span: Span<usize>) -> String {
     let start_loc = byte_offset_to_location(source, span.start);
     let end_loc = byte_offset_to_location(source, span.end.saturating_sub(1).max(span.start));

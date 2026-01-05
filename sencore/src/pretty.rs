@@ -19,11 +19,7 @@ fn is_simple_type(ty: &Type) -> bool {
 /// Returns true if the value is simple (can be printed inline).
 fn is_simple_value(value: &Value) -> bool {
     match value {
-        Value::Void
-        | Value::Num(_)
-        | Value::Bool(_)
-        | Value::MemoryPointer(_)
-        | Value::Builtin(_) => true,
+        Value::Void | Value::Num(_) | Value::Bool(_) | Value::MemoryPointer(_) => true,
         Value::Type(ty) => is_simple_type(ty),
         Value::Struct(_) | Value::Closure(_) => false,
     }
@@ -34,11 +30,12 @@ fn is_simple_value(value: &Value) -> bool {
 fn is_simple(expr: &Expr) -> bool {
     match &expr.kind {
         // Leaf expressions are always simple
-        ExprKind::ConstVoid | ExprKind::ConstInt(_) | ExprKind::ConstBool(_) | ExprKind::Var(_) => {
-            true
-        }
+        ExprKind::Var(_) => true,
 
         ExprKind::Value(v) => is_simple_value(v),
+
+        // BuiltinCall is simple if all args are simple
+        ExprKind::BuiltinCall(bc) => bc.arguments.iter().all(is_simple),
 
         // Compound forms are never simple
         ExprKind::FuncDef(_)
@@ -83,13 +80,11 @@ impl<'a, W: Write> PrettyPrinter<'a, W> {
 
     pub fn print_expr(&mut self, expr: &Expr) -> fmt::Result {
         match &expr.kind {
-            ExprKind::ConstVoid => write!(self.out, "()"),
-            ExprKind::ConstInt(n) => write!(self.out, "{}", n),
-            ExprKind::ConstBool(b) => write!(self.out, "{}", b),
             ExprKind::Var(name) => write!(self.out, "{}", name),
 
             ExprKind::Value(v) => self.print_value(v),
 
+            ExprKind::BuiltinCall(bc) => self.print_builtin_call(bc),
             ExprKind::FuncDef(def) => self.print_func_def(def),
             ExprKind::FuncApp(_) => self.print_func_app(expr),
             ExprKind::IfThenElse(ite) => self.print_if_then_else(ite),
@@ -125,6 +120,33 @@ impl<'a, W: Write> PrettyPrinter<'a, W> {
             writeln!(self.out)?;
             self.write_indent()?;
             write!(self.out, ")")
+        }
+    }
+
+    fn print_builtin_call(&mut self, bc: &BuiltinCall) -> fmt::Result {
+        let name = self.builtin_name(&bc.builtin);
+        write!(self.out, "({}", name)?;
+        for arg in &bc.arguments {
+            write!(self.out, " ")?;
+            self.print_expr(arg)?;
+        }
+        write!(self.out, ")")
+    }
+
+    fn builtin_name(&self, builtin: &Builtin) -> &'static str {
+        match builtin {
+            Builtin::GetStructField => "meta__struct_get_field",
+            Builtin::GetTotalStructFields => "meta__struct_get_total_fields",
+            Builtin::IsStruct => "meta__is_struct",
+            Builtin::Error => "error",
+            Builtin::Add => "add",
+            Builtin::Eq => "eq",
+            Builtin::Malloc => "mem__malloc",
+            Builtin::MemWrite => "mem__write",
+            Builtin::MemRead => "mem__read",
+            Builtin::InputSize => "io__input_size",
+            Builtin::InputCopy => "io__input_copy",
+            Builtin::ReturnExit => "io__return_exit",
         }
     }
 
@@ -256,6 +278,11 @@ impl<'a, W: Write> PrettyPrinter<'a, W> {
             // Fields section
             writeln!(this.out)?;
             this.write_indent()?;
+            write!(this.out, "(capture ")?;
+            this.print_expr(&def.capture)?;
+            write!(this.out, ")")?;
+            writeln!(this.out)?;
+            this.write_indent()?;
             write!(this.out, "(fields")?;
             if !def.fields.is_empty() {
                 this.indented(|this| {
@@ -265,24 +292,6 @@ impl<'a, W: Write> PrettyPrinter<'a, W> {
                         write!(this.out, "({} ", field.name.name)?;
                         this.print_expr(&field.r#type)?;
                         write!(this.out, ")")?;
-                    }
-                    Ok(())
-                })?;
-                writeln!(this.out)?;
-                this.write_indent()?;
-            }
-            write!(this.out, ")")?;
-
-            // Defs section
-            writeln!(this.out)?;
-            this.write_indent()?;
-            write!(this.out, "(defs")?;
-            if !def.associated_defs.is_empty() {
-                this.indented(|this| {
-                    for assoc_def in &def.associated_defs {
-                        writeln!(this.out)?;
-                        this.write_indent()?;
-                        this.print_let_bind(assoc_def)?;
                     }
                     Ok(())
                 })?;
@@ -318,26 +327,7 @@ impl<'a, W: Write> PrettyPrinter<'a, W> {
             Value::Type(ty) => self.print_type_value(ty),
             Value::Struct(s) => self.print_struct_value(s),
             Value::Closure(c) => self.print_closure_value(c),
-            Value::Builtin(b) => self.print_builtin(b),
         }
-    }
-
-    fn print_builtin(&mut self, builtin: &Builtin) -> fmt::Result {
-        let name = match builtin {
-            Builtin::MetaGetStructField => "@meta_get_struct_field",
-            Builtin::MetaGetTotalStructFields => "@meta_get_total_struct_fields",
-            Builtin::MetaIsStruct => "@meta_is_struct",
-            Builtin::Error => "@error",
-            Builtin::Add => "@add",
-            Builtin::Eq => "@eq",
-            Builtin::Malloc => "@malloc",
-            Builtin::MemWrite => "@mem_write",
-            Builtin::MemRead => "@mem_read",
-            Builtin::IoInputSize => "@io_input_size",
-            Builtin::IoInputCopy => "@io_input_copy",
-            Builtin::IoReturnExit => "@io_return_exit",
-        };
-        write!(self.out, "<builtin {}>", name)
     }
 
     fn print_memory_pointer(&mut self, ptr: &VirtualMemoryPointer) -> fmt::Result {
@@ -359,6 +349,13 @@ impl<'a, W: Write> PrettyPrinter<'a, W> {
     fn print_struct_type(&mut self, st: &StructType) -> fmt::Result {
         write!(self.out, "<value type:(struct")?;
         self.indented(|this| {
+            // Capture
+            writeln!(this.out)?;
+            this.write_indent()?;
+            write!(this.out, "(capture ")?;
+            this.print_value(&st.capture)?;
+            write!(this.out, ")")?;
+
             // Fields
             writeln!(this.out)?;
             this.write_indent()?;
@@ -371,24 +368,6 @@ impl<'a, W: Write> PrettyPrinter<'a, W> {
                         write!(this.out, "({} ", name)?;
                         this.print_type_inline(ty)?;
                         write!(this.out, ")")?;
-                    }
-                    Ok(())
-                })?;
-                writeln!(this.out)?;
-                this.write_indent()?;
-            }
-            write!(this.out, ")")?;
-
-            // Defs
-            writeln!(this.out)?;
-            this.write_indent()?;
-            write!(this.out, "(defs")?;
-            if !st.defs.is_empty() {
-                this.indented(|this| {
-                    for def in &st.defs {
-                        writeln!(this.out)?;
-                        this.write_indent()?;
-                        this.print_value(def)?;
                     }
                     Ok(())
                 })?;
@@ -515,10 +494,10 @@ mod tests {
 
     #[test]
     fn test_constants() {
-        assert_eq!(pretty_print_ast(&parse("(42)")), "42");
-        assert_eq!(pretty_print_ast(&parse("(true)")), "true");
-        assert_eq!(pretty_print_ast(&parse("(false)")), "false");
-        assert_eq!(pretty_print_ast(&parse("(())")), "()");
+        assert_eq!(pretty_print_ast(&parse("(42)")), "<value 42>");
+        assert_eq!(pretty_print_ast(&parse("(true)")), "<value true>");
+        assert_eq!(pretty_print_ast(&parse("(false)")), "<value false>");
+        assert_eq!(pretty_print_ast(&parse("(())")), "<value ()>");
     }
 
     #[test]
@@ -529,20 +508,24 @@ mod tests {
     #[test]
     fn test_func() {
         assert_eq!(
-            pretty_print_ast(&parse("(func x word x)")),
-            "(func x word x)"
+            pretty_print_ast(&parse("(funcdef x word x)")),
+            "(funcdef x word x)"
         );
     }
 
     #[test]
     fn test_apply() {
-        assert_eq!(pretty_print_ast(&parse("(apply f x)")), "(f x)");
-        assert_eq!(pretty_print_ast(&parse("(apply f x y z)")), "(f x y z)");
+        // Note: "apply" is not a special keyword, it's just a function name
+        assert_eq!(pretty_print_ast(&parse("(f x)")), "(f x)");
+        assert_eq!(pretty_print_ast(&parse("(f x y z)")), "(f x y z)");
     }
 
     #[test]
     fn test_if() {
-        assert_eq!(pretty_print_ast(&parse("(if true 1 2)")), "(if true 1 2)");
+        assert_eq!(
+            pretty_print_ast(&parse("(if true 1 2)")),
+            "(if <value true> <value 1> <value 2>)"
+        );
     }
 
     #[test]
@@ -557,8 +540,8 @@ mod tests {
         let ast = parse("(block (x i32 10) (y i32 20) x)");
         let output = pretty_print_ast(&ast);
         // Should be printed as nested function applications
-        assert!(output.contains("(func x i32"));
-        assert!(output.contains("(func y i32"));
+        assert!(output.contains("(funcdef x i32"));
+        assert!(output.contains("(funcdef y i32"));
     }
 
     #[test]
@@ -575,29 +558,20 @@ mod tests {
 
     #[test]
     fn test_struct_def() {
-        let ast = parse("(struct_def (fields (x word) (y bool)) (defs))");
+        let ast = parse("(struct_def () (x word) (y bool))");
         let output = pretty_print_ast(&ast);
         assert!(output.contains("(struct_def"));
+        assert!(output.contains("(capture"));
         assert!(output.contains("(fields"));
         assert!(output.contains("(x word)"));
         assert!(output.contains("(y bool)"));
-        assert!(output.contains("(defs)"));
-    }
-
-    #[test]
-    fn test_struct_def_with_defs() {
-        let ast =
-            parse("(struct_def (fields (x word)) (defs (new function (func self word self))))");
-        let output = pretty_print_ast(&ast);
-        assert!(output.contains("(defs"));
-        assert!(output.contains("(new function (func self word self))"));
     }
 
     #[test]
     fn test_struct_init() {
         assert_eq!(
             pretty_print_ast(&parse("(struct_init Point (x 10) (y 20))")),
-            "(struct_init Point (x 10) (y 20))"
+            "(struct_init Point (x <value 10>) (y <value 20>))"
         );
     }
 
@@ -612,7 +586,10 @@ mod tests {
     #[test]
     fn test_display_trait() {
         let ast = parse("(if true 1 2)");
-        assert_eq!(format!("{}", ast), "(if true 1 2)");
-        assert_eq!(format!("{}", ast.runtime_main), "(if true 1 2)");
+        assert_eq!(format!("{}", ast), "(if <value true> <value 1> <value 2>)");
+        assert_eq!(
+            format!("{}", ast.runtime_main),
+            "(if <value true> <value 1> <value 2>)"
+        );
     }
 }

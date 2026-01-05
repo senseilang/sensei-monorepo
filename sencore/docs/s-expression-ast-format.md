@@ -22,8 +22,8 @@ true/false => boolean constant
 [member-access] (attr <path_segment:name>* <struct_expr:expr>) =>
     ((struct_expr.segment[0]).segment[1]) ... .segment[n]
 [struct definition] (struct_def
-    (fields (<field_name:name> <type:expr>)*)
-    (defs <def_node:sexpr_node>*)
+    <type_capture:expr>
+    (<field_name:name> <type:expr>)*
 )
 [struct init] (struct_init <struct_type:expr> (<field:name> <value:expr>)*)
 ```

@@ -1,14 +1,13 @@
 (block
-    (or fn (funcdef a bool (funcdef b bool
+    (comptime or fn (funcdef a bool (funcdef b bool
         (if a true b)
     )))
-    (bytes type (struct_def
-        (fields
-            (ptr memptr)
-            (len i32)
-        )
+    (comptime bytes type (struct_def
+        ()
+        (ptr memptr)
+        (len i32)
     ))
-    (is_abi_dynamic fn (recfuncdef is_abi_dynamic comptime T type (
+    (comptime is_abi_dynamic fn (recfuncdef is_abi_dynamic comptime T type (
         if (or (or (eq T i32) (eq T void)) (eq T bool))
             false
         (/*else*/ if (eq T bytes)
@@ -27,10 +26,10 @@
             (error ()) // void/error
         ))
     )))
-    (_dual_abi_head_size fn (recfuncdef _dual_abi_head_size comptime is_list_fn bool
+    (comptime _dual_abi_head_size fn (recfuncdef _dual_abi_head_size comptime is_list_fn bool
         (block
-            (comptime abi_list_head_size fn (_dual_abi_head_size false))
-            (comptime abi_head_size fn (_dual_abi_head_size true))
+            (comptime abi_list_head_size fn (funcdef comptime S type (_dual_abi_head_size true S)))
+            (comptime abi_head_size fn (funcdef comptime S type (_dual_abi_head_size false S)))
             (if is_list_fn
                 (funcdef comptime S type (
                     (recfuncdef sum_fields i i32 (funcdef acc i32 (
@@ -58,32 +57,32 @@
         )
     ))
 
-    (abi_list_head_size fn (_dual_abi_head_size true))
-    (abi_head_size fn (_dual_abi_head_size false))
+    (comptime abi_list_head_size fn (funcdef comptime S type (_dual_abi_head_size true S)))
+    (comptime abi_head_size fn (funcdef comptime S type (_dual_abi_head_size false S)))
 
-    (MyStruct1 type (struct_def
-        (fields
-            (x i32)
-            (y i32)
-            (z i32)
-        )
+    (comptime MyStruct1 type (struct_def
+        ()
+        (x i32)
+        (y i32)
+        (z i32)
     ))
-    (MyStruct2 type (struct_def
-        (fields
-            (x bytes)
-            (y i32)
-            (z MyStruct1)
-            (b1 bool)
-            (b2 bool)
-        )
+    (comptime MyStruct2 type (struct_def
+        ()
+        (x bytes)
+        (y i32)
+        (z MyStruct1)
+        (b1 bool)
+        (b2 bool)
     ))
-
-    (ret_buf memptr (mem__malloc 24))
-    (_ void (mem__write (add ret_buf  0) (abi_head_size MyStruct1)))
-    (_ void (mem__write (add ret_buf  4) (abi_head_size MyStruct2)))
-    (_ void (mem__write (add ret_buf  8) (abi_list_head_size MyStruct1)))
-    (_ void (mem__write (add ret_buf 12) (abi_list_head_size MyStruct2)))
-    (_ void (mem__write (add ret_buf 16) (abi_head_size i32)))
-    (_ void (mem__write (add ret_buf 20) (abi_head_size void)))
-    (io__return_exit ret_buf 24)
+    (comptime size1 i32 (abi_head_size MyStruct1))
+    (funcdef _ void (block
+        (ret_buf memptr (mem__malloc 24))
+        (_ void (mem__write (add ret_buf  0) (abi_head_size MyStruct1)))
+        (_ void (mem__write (add ret_buf  4) (abi_head_size MyStruct2)))
+        (_ void (mem__write (add ret_buf  8) (abi_list_head_size MyStruct1)))
+        (_ void (mem__write (add ret_buf 12) (abi_list_head_size MyStruct2)))
+        (_ void (mem__write (add ret_buf 16) (abi_head_size i32)))
+        (_ void (mem__write (add ret_buf 20) (abi_head_size void)))
+        (io__return_exit ret_buf 24)
+    ))
 )

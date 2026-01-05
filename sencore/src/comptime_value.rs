@@ -6,7 +6,7 @@ type AllocationId = u32;
 pub struct StructType {
     pub def_uuid: ast::StructDefUniqueId,
     pub fields: Vec<(Box<str>, Type)>,
-    pub defs: Vec<Value>,
+    pub capture: Value,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -32,14 +32,16 @@ pub struct ScopeId(pub usize);
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct Closure {
     pub r#type: Type,
+    pub is_comptime: bool,
     pub binds: Box<str>,
     pub body: ast::Expr,
     pub captures: ScopeId,
 }
 
-pub enum PartialExpr {
-    Value(Value),
-    Var(Box<str>),
+impl From<Closure> for Value {
+    fn from(value: Closure) -> Self {
+        Self::Closure(Box::new(value))
+    }
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -54,11 +56,11 @@ pub struct VirtualMemoryPointer {
     pub offset: i32,
 }
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum Builtin {
-    MetaGetStructField,
-    MetaGetTotalStructFields,
-    MetaIsStruct,
+    GetStructField,
+    GetTotalStructFields,
+    IsStruct,
     Error,
 
     Add,
@@ -68,14 +70,41 @@ pub enum Builtin {
     MemWrite,
     MemRead,
 
-    IoInputSize,
-    IoInputCopy,
-    IoReturnExit,
+    InputSize,
+    InputCopy,
+    ReturnExit,
 }
 
-impl From<Builtin> for Value {
-    fn from(value: Builtin) -> Self {
-        Self::Builtin(value)
+impl Builtin {
+    pub fn comptime_only(&self) -> bool {
+        matches!(
+            self,
+            Self::GetStructField | Self::GetTotalStructFields | Self::IsStruct | Self::Error
+        )
+    }
+
+    pub fn runtime_only(&self) -> bool {
+        matches!(self, Self::InputSize | Self::InputCopy | Self::ReturnExit)
+    }
+
+    pub const fn arg_count(&self) -> usize {
+        match self {
+            Self::GetStructField => 2,
+            Self::GetTotalStructFields => 1,
+            Self::IsStruct => 1,
+            Self::Error => 1,
+
+            Self::Add => 2,
+            Self::Eq => 2,
+
+            Self::Malloc => 1,
+            Self::MemWrite => 2,
+            Self::MemRead => 1,
+
+            Self::InputSize => 1,
+            Self::InputCopy => 3,
+            Self::ReturnExit => 2,
+        }
     }
 }
 
@@ -84,9 +113,22 @@ pub enum Value {
     Void,
     Num(i32),
     Bool(bool),
-    Builtin(Builtin),
     Struct(Box<StructValue>),
     MemoryPointer(VirtualMemoryPointer),
     Type(Box<Type>),
     Closure(Box<Closure>),
+}
+
+impl Value {
+    pub fn get_type(&self) -> Type {
+        match self {
+            Value::Void => Type::Void,
+            Value::Num(_) => Type::Num,
+            Value::Bool(_) => Type::Bool,
+            Value::Struct(s) => s.r#type.clone(),
+            Value::MemoryPointer(_) => Type::MemoryPointer,
+            Value::Type(_) => Type::Type,
+            Value::Closure(_) => Type::Function,
+        }
+    }
 }
