@@ -17,3 +17,9 @@ Cargo workspace with crates in `crates/`:
 - **neosen-parser**: Lexer, parser, and AST definitions
   - `lexer.rs`: Token lexer using the `logos` crate
   - `ast.rs`: AST node definitions
+
+## Coding Style
+
+- Comments are code that is never tested. Avoid unless necessary to explain
+  intricate code.
+
