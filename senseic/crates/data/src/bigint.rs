@@ -96,11 +96,11 @@ impl<'arena> FrozenBigUint<'arena> {
         new
     }
 
-    fn mul_add_assign_wrapping(&mut self, factor: u32, add: u32) {
-        let factor = factor as u64;
+    fn mul_add_assign_wrapping(&mut self, mul: u32, add: u32) {
+        let mul = mul as u64;
         let mut carry = add;
         for limb in self.0.iter_mut() {
-            let res = (*limb) as u64 * factor;
+            let res = (*limb) as u64 * mul;
             let (new_limb, carry_add) = (res as u32).overflowing_add(carry);
             *limb = new_limb;
             carry = ((res >> 32) as u32) + carry_add as u32;

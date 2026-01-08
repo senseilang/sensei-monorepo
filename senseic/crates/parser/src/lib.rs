@@ -1,9 +1,8 @@
 pub mod ast;
 mod display;
-mod ts_parser;
+mod lexer;
 
 pub mod const_print;
 
 pub use ast::StringInterner;
 pub use display::AstDisplay;
-pub use ts_parser::parse_via_tree_sitter;
