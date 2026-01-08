@@ -59,7 +59,29 @@
 
     (comptime abi_list_head_size fn (funcdef comptime S type (_dual_abi_head_size true S)))
     (comptime abi_head_size fn (funcdef comptime S type (_dual_abi_head_size false S)))
+    (comptime slice_head fn (funcdef b bytes (block
+        (len i32 (attr len b))
+        (ptr memptr (attr ptr b))
+        (struct_init bytes
+            (len (add len -1))
+            (ptr (add ptr 1))
+        )
+    )))
 
+    (comptime embed_bytes fn (recfuncdef embed_bytes comptime src bytes
+        (funcdef dst memptr (
+            if (eq 0 (attr len src))
+                ()
+                (block
+                    (_ void (mem__write dst (mem__read (attr ptr src))))
+                    (bumped_src bytes (slice_head src))
+                    (bumped_dst memptr (add dst 1))
+                    (embed_bytes bumped_src bumped_dst)
+                )
+        ))
+    ))
+
+    // Type Definitions
     (comptime MyStruct1 type (struct_def
         ()
         (x i32)
@@ -74,7 +96,8 @@
         (b1 bool)
         (b2 bool)
     ))
-    (comptime size1 i32 (abi_head_size MyStruct1))
+
+    // Runtime
     (funcdef _ void (block
         (ret_buf memptr (mem__malloc 24))
         (_ void (mem__write (add ret_buf  0) (abi_head_size MyStruct1)))

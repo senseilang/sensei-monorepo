@@ -1,4 +1,4 @@
-use crate::comptime_value::{Builtin, Value};
+use crate::comptime_value::{Builtin, Closure, ScopeId, Value};
 
 type Span = crate::Span<usize>;
 
@@ -12,9 +12,26 @@ pub struct Name {
 pub struct FuncDef {
     pub recursive_name: Option<Name>,
     pub is_comptime: bool,
-    pub func_bind: Name,
+    pub bind: Name,
     pub bind_type_expr: Expr,
     pub body: Expr,
+}
+
+impl FuncDef {
+    pub fn to_closure(&self, captures: ScopeId) -> Closure {
+        Closure {
+            r#type: *match &self.bind_type_expr.kind {
+                ExprKind::Value(v) => v.clone().as_type().ok(),
+                _ => None,
+            }
+            .expect("closure requires concrete type"),
+            is_comptime: self.is_comptime,
+            recursive_name: self.recursive_name.as_ref().map(|n| n.name.clone()),
+            binds: self.bind.name.clone(),
+            body: self.body.clone(),
+            captures,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

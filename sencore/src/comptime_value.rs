@@ -1,6 +1,6 @@
 use crate::ast;
 
-type AllocationId = u32;
+pub type AllocationId = u32;
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct StructType {
@@ -23,6 +23,13 @@ pub enum Type {
 impl Type {
     pub const fn is_struct(&self) -> bool {
         matches!(self, Self::Struct(_))
+    }
+
+    pub fn as_struct(self) -> Result<StructType, Self> {
+        match self {
+            Self::Struct(s) => Ok(s),
+            other => Err(other),
+        }
     }
 }
 
@@ -136,6 +143,48 @@ impl Value {
             Value::MemoryPointer(_) => Type::MemoryPointer,
             Value::Type(_) => Type::Type,
             Value::Closure(_) => Type::Function,
+        }
+    }
+
+    pub fn as_num(self) -> Result<i32, Self> {
+        match self {
+            Self::Num(x) => Ok(x),
+            other => Err(other),
+        }
+    }
+
+    pub fn as_type(self) -> Result<Box<Type>, Self> {
+        match self {
+            Self::Type(t) => Ok(t),
+            other => Err(other),
+        }
+    }
+
+    pub fn as_bool(self) -> Result<bool, Self> {
+        match self {
+            Self::Bool(b) => Ok(b),
+            other => Err(other),
+        }
+    }
+
+    pub fn as_closure(self) -> Result<Box<Closure>, Self> {
+        match self {
+            Self::Closure(closure) => Ok(closure),
+            other => Err(other),
+        }
+    }
+
+    pub fn as_memptr(self) -> Result<VirtualMemoryPointer, Self> {
+        match self {
+            Self::MemoryPointer(ptr) => Ok(ptr),
+            other => Err(other),
+        }
+    }
+
+    pub fn as_struct(self) -> Result<Box<StructValue>, Self> {
+        match self {
+            Self::Struct(s) => Ok(s),
+            other => Err(other),
         }
     }
 }

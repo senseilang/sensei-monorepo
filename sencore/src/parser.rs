@@ -247,7 +247,7 @@ fn lower_func(
         kind: ExprKind::FuncDef(Box::new(FuncDef {
             recursive_name: None,
             is_comptime,
-            func_bind,
+            bind: func_bind,
             bind_type_expr,
             body,
         })),
@@ -292,7 +292,7 @@ fn lower_recursive_func(
         kind: ExprKind::FuncDef(Box::new(FuncDef {
             recursive_name: Some(funcref),
             is_comptime,
-            func_bind,
+            bind: func_bind,
             bind_type_expr,
             body,
         })),
@@ -356,7 +356,7 @@ fn lower_block(
             kind: ExprKind::FuncDef(Box::new(FuncDef {
                 recursive_name: None,
                 is_comptime: let_bind.is_comptime,
-                func_bind: let_bind.bind_local,
+                bind: let_bind.bind_local,
                 bind_type_expr: let_bind.bind_type_expr,
                 body,
             })),
@@ -633,13 +633,19 @@ mod tests {
     #[test]
     fn test_lower_constants() {
         let ast = parse_and_lower("(42)").unwrap();
-        assert!(matches!(&ast.runtime_main.kind, ExprKind::Value(v) if matches!(&**v, Value::Num(42))));
+        assert!(
+            matches!(&ast.runtime_main.kind, ExprKind::Value(v) if matches!(&**v, Value::Num(42)))
+        );
 
         let ast = parse_and_lower("(true)").unwrap();
-        assert!(matches!(&ast.runtime_main.kind, ExprKind::Value(v) if matches!(&**v, Value::Bool(true))));
+        assert!(
+            matches!(&ast.runtime_main.kind, ExprKind::Value(v) if matches!(&**v, Value::Bool(true)))
+        );
 
         let ast = parse_and_lower("(())").unwrap();
-        assert!(matches!(&ast.runtime_main.kind, ExprKind::Value(v) if matches!(&**v, Value::Void)));
+        assert!(
+            matches!(&ast.runtime_main.kind, ExprKind::Value(v) if matches!(&**v, Value::Void))
+        );
     }
 
     #[test]
@@ -667,7 +673,7 @@ mod tests {
         let ExprKind::FuncDef(outer_func) = &outer_app.func_expr.kind else {
             panic!("Expected outer FuncDef");
         };
-        assert_eq!(&*outer_func.func_bind.name, "x");
+        assert_eq!(&*outer_func.bind.name, "x");
         // The body of outer_func should be another FuncApp
         let ExprKind::FuncApp(inner_app) = &outer_func.body.kind else {
             panic!("Expected inner FuncApp");
@@ -676,7 +682,7 @@ mod tests {
         let ExprKind::FuncDef(inner_func) = &inner_app.func_expr.kind else {
             panic!("Expected inner FuncDef");
         };
-        assert_eq!(&*inner_func.func_bind.name, "y");
+        assert_eq!(&*inner_func.bind.name, "y");
     }
 
     #[test]

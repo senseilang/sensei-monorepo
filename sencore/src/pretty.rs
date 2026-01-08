@@ -100,10 +100,10 @@ impl<'a, W: Write> PrettyPrinter<'a, W> {
             write!(
                 self.out,
                 "(recfuncdef {}{} {} ",
-                recursive_name.name, comptime_str, def.func_bind.name
+                recursive_name.name, comptime_str, def.bind.name
             )?;
         } else {
-            write!(self.out, "(funcdef{} {} ", comptime_str, def.func_bind.name)?;
+            write!(self.out, "(funcdef{} {} ", comptime_str, def.bind.name)?;
         };
         self.print_expr(&def.bind_type_expr)?;
 
@@ -321,7 +321,7 @@ impl<'a, W: Write> PrettyPrinter<'a, W> {
             Type::Void => write!(self.out, "<value type:void>"),
             Type::Num => write!(self.out, "<value type:num>"),
             Type::Bool => write!(self.out, "<value type:bool>"),
-            Type::MemoryPointer => write!(self.out, "<value type:ptr>"),
+            Type::MemoryPointer => write!(self.out, "<value type:memptr>"),
             Type::Type => write!(self.out, "<value type:type>"),
             Type::Function => write!(self.out, "<value type:fn>"),
             Type::Struct(st) => self.print_struct_type(st),
@@ -369,7 +369,7 @@ impl<'a, W: Write> PrettyPrinter<'a, W> {
             Type::Void => write!(self.out, "void"),
             Type::Num => write!(self.out, "num"),
             Type::Bool => write!(self.out, "bool"),
-            Type::MemoryPointer => write!(self.out, "ptr"),
+            Type::MemoryPointer => write!(self.out, "memptr"),
             Type::Type => write!(self.out, "type"),
             Type::Function => write!(self.out, "fn"),
             Type::Struct(_) => write!(self.out, "struct"), // Simplified for inline

@@ -40,8 +40,15 @@ impl<'src> Iterator for Lexer<'src> {
         'find_next_token: while let Some((start, c)) = self.chars.next() {
             let tok = match c {
                 '-' | '0'..='9' => {
-                    while self.chars.next_if(|(_, c)| c.is_ascii_digit()).is_some() {}
-                    Token::Num(&self.source[start..self.current()])
+                    let mut more_than_one = false;
+                    while self.chars.next_if(|(_, c)| c.is_ascii_digit()).is_some() {
+                        more_than_one = true;
+                    }
+                    if c == '-' && !more_than_one {
+                        Token::Error
+                    } else {
+                        Token::Num(&self.source[start..self.current()])
+                    }
                 }
                 '_' | 'a'..='z' | 'A'..='Z' => {
                     while self

@@ -24,7 +24,7 @@ cargo check
 ## Project Overview
 
 Sencore (Sensei-core) is a prototype for the Sensei EVM Smart Contract language implemented in Rust.
-It's goals are to validate the initial semantics & functionality as well act as a throwaway
+Its goals are to validate the initial semantics & functionality as well act as a throwaway
 implementation to better understand how to structure the production compiler.
 
 Sensei is to be language with staged computation closely modelling Zig:

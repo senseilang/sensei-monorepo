@@ -63,6 +63,7 @@ enum ValueOrFree {
 struct Interpreter {
     scope_tree: Vec<Scope>,
     current_scope: ScopeId,
+    comptime_memory: Vec<Box<[i32]>>,
 }
 
 fn short_fmt(value: impl std::fmt::Debug, max_len: usize) -> String {
@@ -82,6 +83,7 @@ impl Interpreter {
         let mut i = Self {
             scope_tree,
             current_scope: Self::ROOT_SCOPE,
+            comptime_memory: vec![],
         };
 
         // Types
@@ -186,13 +188,13 @@ impl Interpreter {
                 }
             },
             ExprKind::IfThenElse(if_else) => {
-                let cond = self.comptime_eval(&if_else.condition).push_err_span(span)?;
-                let Value::Bool(cond) = cond else {
-                    return Err(InterpretError::new(
-                        format!("Expected boolean, got: {:?}", cond),
-                        span,
-                    ));
-                };
+                let cond = self
+                    .comptime_eval(&if_else.condition)
+                    .push_err_span(span)?
+                    .as_bool()
+                    .map_err(|cond| {
+                        InterpretError::new(format!("Expected boolean, got: {:?}", cond), span)
+                    })?;
                 if cond {
                     self.comptime_eval(&if_else.true_branch)
                         .push_err_span(span)?
@@ -201,19 +203,28 @@ impl Interpreter {
                         .push_err_span(span)?
                 }
             }
-            ExprKind::FuncDef(func_def) => self.eval_func_def(&func_def)?.into(),
+            ExprKind::FuncDef(func_def) => {
+                let type_value = self.comptime_eval(&func_def.bind_type_expr)?;
+                let r#type =
+                    Self::as_type(type_value).push_err_span(func_def.bind_type_expr.span)?;
+
+                Closure {
+                    r#type,
+                    is_comptime: func_def.is_comptime,
+                    recursive_name: func_def.recursive_name.clone().map(|name| name.name),
+                    binds: func_def.bind.name.clone(),
+                    body: func_def.body.clone(),
+                    captures: self.current_scope,
+                }
+                .into()
+            }
             ExprKind::FuncApp(func_app) => {
                 let func = self.comptime_eval(&func_app.func_expr)?;
                 let apply = self.comptime_eval(&func_app.applying_expr)?;
-                match func {
-                    Value::Closure(closure) => self.eval_closure(*closure, apply, span)?,
-                    non_func => {
-                        return Err(InterpretError::new(
-                            format!("Expected function, got: {:?}", non_func),
-                            span,
-                        ));
-                    }
-                }
+                let closure = func.as_closure().map_err(|non_func| {
+                    InterpretError::new(format!("Expected function, got: {:?}", non_func), span)
+                })?;
+                self.eval_closure(*closure, apply).push_err_span(span)?
             }
             ExprKind::StructDef(struct_def) => {
                 let capture = self.comptime_eval(&struct_def.capture)?;
@@ -222,7 +233,7 @@ impl Interpreter {
                     .iter()
                     .map(|field| {
                         let type_value = self.comptime_eval(&field.r#type)?;
-                        let r#type = Self::as_type(type_value, field.span)?;
+                        let r#type = Self::as_type(type_value).push_err_span(field.span)?;
                         Ok((field.name.name.clone(), r#type))
                     })
                     .collect::<Result<_, _>>()?;
@@ -233,58 +244,130 @@ impl Interpreter {
                 })))
             }
             ExprKind::BuiltinCall(call) => self.eval_builtin(call).push_err_span(span)?,
-            ExprKind::MemberAccess(_) | ExprKind::StructInit(_) => {
-                return Err(InterpretError::new(
-                    format!("comptime: unimplemented: <{}>", short_fmt(&expr.kind, 60)),
-                    expr.span,
-                ));
+            ExprKind::StructInit(struct_init) => {
+                // Evaluate struct_type expression to get Type::Struct
+                let struct_type = self
+                    .comptime_eval(&struct_init.struct_type)?
+                    .as_type()
+                    .map_err(|v| {
+                        InterpretError::new(
+                            format!("Expected type, got: {:?}", v.get_type()),
+                            struct_init.struct_type.span,
+                        )
+                    })?
+                    .as_struct()
+                    .map_err(|t| {
+                        InterpretError::new(
+                            format!("Expected struct type, got: {:?}", t),
+                            struct_init.struct_type.span,
+                        )
+                    })?;
+
+                // Check field count matches
+                if struct_init.fields.len() != struct_type.fields.len() {
+                    return Err(InterpretError::new(
+                        format!(
+                            "Struct init has {} fields, but struct type has {} fields",
+                            struct_init.fields.len(),
+                            struct_type.fields.len()
+                        ),
+                        span,
+                    ));
+                }
+
+                // Evaluate fields in order, checking names match definition order
+                let field_values = struct_init
+                    .fields
+                    .iter()
+                    .zip(struct_type.fields.iter())
+                    .map(|(init_field, (expected_name, expected_type))| {
+                        // Check field name matches expected order
+                        if &*init_field.name.name != &**expected_name {
+                            return Err(InterpretError::new(
+                                format!(
+                                    "Expected field {:?}, got {:?} (fields must be in definition order)",
+                                    expected_name, init_field.name.name
+                                ),
+                                init_field.span,
+                            ));
+                        }
+
+                        let value = self
+                            .comptime_eval(&init_field.value)
+                            .push_err_span(init_field.span)?;
+
+                        // Type check
+                        let actual_type = value.get_type();
+                        if actual_type != *expected_type {
+                            return Err(InterpretError::new(
+                                format!(
+                                    "Field {:?} type mismatch: expected {:?}, got {:?}",
+                                    init_field.name.name, expected_type, actual_type
+                                ),
+                                init_field.span,
+                            ));
+                        }
+
+                        Ok(value)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+
+                Value::Struct(Box::new(StructValue {
+                    r#type: Type::Struct(struct_type),
+                    field_values,
+                }))
+            }
+            ExprKind::MemberAccess(access) => {
+                let struct_value =
+                    self.comptime_eval(&access.r#struct)?
+                        .as_struct()
+                        .map_err(|v| {
+                            InterpretError::new(
+                                format!("Expected struct, got: {:?}", v.get_type()),
+                                access.r#struct.span,
+                            )
+                        })?;
+
+                let struct_type = struct_value
+                    .r#type
+                    .clone()
+                    .as_struct()
+                    .expect("StructValue always has Type::Struct");
+
+                let field_index = struct_type
+                    .fields
+                    .iter()
+                    .position(|(name, _)| &**name == &*access.member.name)
+                    .ok_or_else(|| {
+                        InterpretError::new(
+                            format!("Unknown field {:?}", access.member.name),
+                            access.member.span,
+                        )
+                    })?;
+
+                struct_value.field_values[field_index].clone()
             }
         };
 
         Ok(v)
     }
 
-    fn as_type(value: Value, error_span: Span<usize>) -> Result<Type, InterpretError> {
-        match value {
-            Value::Type(r#type) => Ok(*r#type),
-            non_type => Err(InterpretError::new(
-                format!(
-                    "Expected closure type expression to evaluate to type, got: {:?}",
-                    non_type.get_type()
-                ),
-                error_span,
-            )),
-        }
-    }
-
-    fn eval_func_def(&mut self, func_def: &FuncDef) -> Result<Closure, InterpretError> {
-        let type_value = self.comptime_eval(&func_def.bind_type_expr)?;
-        let r#type = Self::as_type(type_value, func_def.bind_type_expr.span)?;
-        Ok(Closure {
-            r#type,
-            is_comptime: func_def.is_comptime,
-            recursive_name: func_def.recursive_name.clone().map(|name| name.name),
-            binds: func_def.func_bind.name.clone(),
-            body: func_def.body.clone(),
-            captures: self.current_scope,
+    fn as_type(value: Value) -> Result<Type, InterpretError> {
+        value.as_type().map(|t| *t).map_err(|non_type| {
+            InterpretError::naked(format!(
+                "Expected closure type expression to evaluate to type, got: {:?}",
+                non_type.get_type()
+            ))
         })
     }
 
-    fn eval_closure(
-        &mut self,
-        closure: Closure,
-        apply: Value,
-        span: Span<usize>,
-    ) -> Result<Value, InterpretError> {
+    fn eval_closure(&mut self, closure: Closure, apply: Value) -> Result<Value, InterpretError> {
         let apply_type = apply.get_type();
         if apply_type != closure.r#type {
-            return Err(InterpretError::new(
-                format!(
-                    "Type mismatch: expected {:?}, got: {:?}",
-                    apply_type, closure.r#type
-                ),
-                span,
-            ));
+            return Err(InterpretError::naked(format!(
+                "Type mismatch: expected {:?}, got: {:?}",
+                apply_type, closure.r#type
+            )));
         }
 
         let return_scope = self.current_scope;
@@ -294,7 +377,7 @@ impl Interpreter {
             self.bind(recurse_bind, Value::Closure(Box::new(closure.clone())));
         }
 
-        let body_res = self.comptime_eval(&closure.body).push_err_span(span);
+        let body_res = self.comptime_eval(&closure.body);
         self.current_scope = return_scope;
 
         body_res
@@ -305,71 +388,58 @@ impl Interpreter {
         let v = match call.builtin {
             Builtin::IsStruct => {
                 let r#type = values.next().expect("missing bcall arg")?;
-                let Value::Type(r#type) = r#type else {
-                    return Err(InterpretError::naked(format!(
+                let r#type = r#type.as_type().map_err(|non_type| {
+                    InterpretError::naked(format!(
                         "Cannot determine struct-ness of non-type value <{:?}>",
-                        r#type.get_type()
-                    )));
-                };
+                        non_type.get_type()
+                    ))
+                })?;
                 Value::Bool(r#type.is_struct())
             }
             Builtin::GetTotalStructFields => {
-                let struct_type = values.next().expect("missing bcall arg")?;
-                let field_count = match struct_type {
-                    Value::Type(r#type) => match *r#type {
-                        Type::Struct(s) => s.fields.len() as i32,
-                        non_struct => {
-                            return Err(InterpretError::naked(format!(
-                                "Cannot get struct field count of non-struct type <{:?}>",
-                                non_struct
-                            )));
-                        }
-                    },
-                    non_type => {
-                        return Err(InterpretError::naked(format!(
-                            "Cannot get struct field count of non-type value <{:?}>",
-                            non_type.get_type()
-                        )));
-                    }
-                };
-                Value::Num(field_count)
+                let value = values.next().expect("missing bcall arg")?;
+                let r#type = value.as_type().map_err(|non_type| {
+                    InterpretError::naked(format!(
+                        "Cannot get struct field count of non-type value <{:?}>",
+                        non_type.get_type()
+                    ))
+                })?;
+                let r#struct = (*r#type).as_struct().map_err(|non_struct| {
+                    InterpretError::naked(format!(
+                        "Cannot get struct field count of non-struct type <{:?}>",
+                        non_struct
+                    ))
+                })?;
+                Value::Num(r#struct.fields.len() as i32)
             }
             Builtin::GetStructField => {
-                let struct_type = values.next().expect("missing bcall arg")?;
+                let r#struct = values.next().expect("missing bcall arg")?;
                 let field_index = values.next().expect("missing bcall arg")?;
-                let r#struct = match struct_type {
-                    Value::Type(r#type) => match *r#type {
-                        Type::Struct(s) => s,
-                        non_struct => {
-                            return Err(InterpretError::naked(format!(
-                                "Cannot get struct field count of non-struct type <{:?}>",
-                                non_struct
-                            )));
-                        }
-                    },
-                    non_type => {
-                        return Err(InterpretError::naked(format!(
-                            "Cannot get struct field count of non-type value <{:?}>",
-                            non_type.get_type()
-                        )));
-                    }
-                };
-                let index = match field_index {
-                    Value::Num(i) if i >= 0 => i as usize,
-                    Value::Num(i) => {
-                        return Err(InterpretError::naked(format!(
-                            "Struct field index expected to be positive, got: {}",
-                            i
-                        )));
-                    }
-                    non_num => {
-                        return Err(InterpretError::naked(format!(
-                            "Expected struct field index to be number, got: {:?}",
-                            non_num.get_type()
-                        )));
-                    }
-                };
-                let Some((_, field_type)) = r#struct.fields.get(index) else {
+                let r#type = r#struct.as_type().map_err(|non_type| {
+                    InterpretError::naked(format!(
+                        "Cannot get struct field of non-type value <{:?}>",
+                        non_type.get_type()
+                    ))
+                })?;
+                let r#struct = (*r#type).as_struct().map_err(|non_struct| {
+                    InterpretError::naked(format!(
+                        "Cannot get struct field of non-struct type <{:?}>",
+                        non_struct
+                    ))
+                })?;
+                let index = field_index.as_num().map_err(|non_num| {
+                    InterpretError::naked(format!(
+                        "Expected struct field index to be number, got: {:?}",
+                        non_num.get_type()
+                    ))
+                })?;
+                if index < 0 {
+                    return Err(InterpretError::naked(format!(
+                        "Struct field index expected to be positive, got: {}",
+                        index
+                    )));
+                }
+                let Some((_, field_type)) = r#struct.fields.get(index as usize) else {
                     return Err(InterpretError::naked(format!(
                         "Struct field index out of bounds (index = {}, total fields = {})",
                         index,
@@ -381,24 +451,94 @@ impl Interpreter {
             Builtin::Add => {
                 let x = values.next().expect("missing bcall arg")?;
                 let y = values.next().expect("missing bcall arg")?;
-                let Value::Num(x) = x else {
-                    return Err(InterpretError::naked(format!(
-                        "Unsupported type for addition (lhs): {:?}",
-                        x.get_type()
-                    )));
-                };
-                let Value::Num(y) = y else {
-                    return Err(InterpretError::naked(format!(
-                        "Unsupported type for addition (rhs): {:?}",
-                        y.get_type()
-                    )));
-                };
-                Value::Num(x.wrapping_add(y))
+                let y = y.as_num().map_err(|non_num| {
+                    InterpretError::naked(format!(
+                        "Unsupported type for add (rhs): {:?}",
+                        non_num.get_type()
+                    ))
+                })?;
+                match x {
+                    Value::Num(x) => Value::Num(x.wrapping_add(y)),
+                    Value::MemoryPointer(ptr) => Value::MemoryPointer(VirtualMemoryPointer {
+                        allocation: ptr.allocation,
+                        offset: ptr.offset.wrapping_add(y),
+                    }),
+                    _ => {
+                        return Err(InterpretError::naked(format!(
+                            "Unsupported type for addition (lhs): {:?}",
+                            x.get_type()
+                        )));
+                    }
+                }
             }
             Builtin::Eq => {
                 let x = values.next().expect("missing bcall arg")?;
                 let y = values.next().expect("missing bcall arg")?;
                 Value::Bool(x == y)
+            }
+            Builtin::Malloc => {
+                let size = values.next().expect("missing bcall arg")?;
+                let size = size.as_num().map_err(|non_num| {
+                    InterpretError::naked(format!(
+                        "Malloc expect size as i32, got: {:?}",
+                        non_num.get_type()
+                    ))
+                })?;
+                if size < 0 {
+                    return Err(InterpretError::naked(format!(
+                        "Negative malloc size {:?}",
+                        size
+                    )));
+                }
+                let alloc_words = vec![0; size as usize].into_boxed_slice();
+                let alloc_id = self.comptime_memory.len() as AllocationId;
+                self.comptime_memory.push(alloc_words);
+                Value::MemoryPointer(VirtualMemoryPointer {
+                    allocation: alloc_id,
+                    offset: 0,
+                })
+            }
+            Builtin::MemWrite => {
+                let ptr = values.next().expect("missing bcall arg")?;
+                let value = values.next().expect("missing bcall arg")?;
+                let ptr = ptr.as_memptr().map_err(|v| {
+                    InterpretError::naked(format!(
+                        "Attempting to write to non-ptr: {:?}",
+                        v.get_type()
+                    ))
+                })?;
+                let value = value.as_num().map_err(|v| {
+                    InterpretError::naked(format!(
+                        "Attempting to write non-i32: {:?}",
+                        v.get_type()
+                    ))
+                })?;
+                let allocation = &mut self.comptime_memory[ptr.allocation as usize];
+                if ptr.offset < 0 || ptr.offset as usize >= allocation.len() {
+                    return Err(InterpretError::naked(format!(
+                        "Write offset {} out of bounds",
+                        ptr.offset
+                    )));
+                }
+                allocation[ptr.offset as usize] = value;
+                Value::Void
+            }
+            Builtin::MemRead => {
+                let ptr = values.next().expect("missing bcall arg")?;
+                let ptr = ptr.as_memptr().map_err(|v| {
+                    InterpretError::naked(format!(
+                        "Attempting to read from non-ptr: {:?}",
+                        v.get_type()
+                    ))
+                })?;
+                let allocation = &self.comptime_memory[ptr.allocation as usize];
+                if ptr.offset < 0 || ptr.offset as usize >= allocation.len() {
+                    return Err(InterpretError::naked(format!(
+                        "Read offset {} out of bounds",
+                        ptr.offset
+                    )));
+                }
+                Value::Num(allocation[ptr.offset as usize])
             }
             builtin => {
                 return Err(InterpretError::naked(format!(
@@ -410,28 +550,40 @@ impl Interpreter {
         Ok(v)
     }
 
-    fn partially_eval_value(&mut self, value: &Value) -> Result<Value, InterpretError> {
-        let v = match value {
-            Value::Closure(closure) => {
-                let mut closure = *closure.clone();
-                if !closure.is_comptime {
-                    let return_scope = self.current_scope;
-                    self.current_scope = closure.captures;
-
-                    self.bind_free(&closure.binds);
-                    if let Some(recursive_bind) = &closure.recursive_name {
-                        self.bind_free(recursive_bind);
-                    }
-                    closure.body = self.partial_eval(&closure.body)?;
-
-                    self.current_scope = return_scope;
-                }
-
-                closure.into()
-            }
-            non_closure => non_closure.clone(),
+    fn ensure_value_partially_evaluated(&mut self, value: Value) -> Result<Value, InterpretError> {
+        let mut closure = match value {
+            Value::Closure(closure) => closure,
+            non_closure => return Ok(non_closure),
         };
-        Ok(v)
+
+        if !closure.is_comptime {
+            closure.body = self.partial_eval_body(
+                &closure.binds,
+                closure.recursive_name.as_ref(),
+                &closure.body,
+                closure.captures,
+            )?;
+        }
+
+        Ok(Value::Closure(closure))
+    }
+
+    fn partial_eval_body(
+        &mut self,
+        bind: impl AsRef<str>,
+        recurse_bind: Option<impl AsRef<str>>,
+        body: &Expr,
+        eval_scope: ScopeId,
+    ) -> Result<Expr, InterpretError> {
+        let return_scope = self.current_scope;
+        self.current_scope = eval_scope;
+        self.bind_free(bind);
+        if let Some(recurse_bind) = recurse_bind {
+            self.bind_free(recurse_bind);
+        }
+        let result = self.partial_eval(body);
+        self.current_scope = return_scope;
+        result
     }
 
     fn partial_eval(&mut self, expr: &Expr) -> Result<Expr, InterpretError> {
@@ -454,7 +606,7 @@ impl Interpreter {
                     ValueOrFree::Free => ExprKind::Var(name.clone()),
                 }
             }
-            ExprKind::Value(value) => self.partially_eval_value(value)?.into(),
+            ExprKind::Value(value) => ExprKind::Value(value.clone()),
             ExprKind::BuiltinCall(bcall) => {
                 if bcall.builtin.comptime_only() {
                     self.eval_builtin(bcall)?.into()
@@ -472,39 +624,33 @@ impl Interpreter {
             }
             ExprKind::FuncApp(func_app) => {
                 let func_expr = self.partial_eval(&func_app.func_expr)?;
-                let applying_expr = self.partial_eval(&func_app.applying_expr)?;
-                let closure = match &func_expr.kind {
+                let comptime_closure = match &func_expr.kind {
                     ExprKind::Value(v) => match v as &Value {
                         Value::Closure(closure) if closure.is_comptime => Some(*closure.clone()),
                         _ => None,
                     },
                     ExprKind::FuncDef(func_def) if func_def.is_comptime => {
-                        Some(self.eval_func_def(func_def)?)
+                        Some(func_def.to_closure(self.current_scope))
                     }
                     _ => None,
                 };
 
-                if let Some(closure) = closure {
-                    let apply_value = match applying_expr.kind {
-                        ExprKind::Value(apply_value) => *apply_value,
-                        ExprKind::FuncDef(func_def) => self.eval_func_def(&func_def)?.into(),
-                        _ => {
-                            return Err(InterpretError::new(
-                                format!(
-                                    "Applying non-value to comptime closure [2]: {}",
-                                    &applying_expr
-                                ),
-                                span,
-                            ));
-                        }
-                    };
-                    let closure_result = self
-                        .eval_closure(closure, apply_value, span)
+                if let Some(closure) = comptime_closure {
+                    let apply_value = self
+                        .comptime_eval(&func_app.applying_expr)
                         .push_err_span(span)?;
-                    self.partially_eval_value(&closure_result)
+                    let apply_value = self
+                        .ensure_value_partially_evaluated(apply_value)
+                        .push_err_span(span)?;
+
+                    let eval_result = self
+                        .eval_closure(closure, apply_value)
+                        .push_err_span(span)?;
+                    self.ensure_value_partially_evaluated(eval_result)
                         .push_err_span(span)?
                         .into()
                 } else {
+                    let applying_expr = self.partial_eval(&func_app.applying_expr)?;
                     ExprKind::FuncApp(Box::new(FuncApp {
                         func_expr,
                         applying_expr,
@@ -515,22 +661,87 @@ impl Interpreter {
                 let mut func_def = func_def.clone();
 
                 let type_value = self.comptime_eval(&func_def.bind_type_expr)?;
-                let r#type = Self::as_type(type_value, func_def.bind_type_expr.span)?;
-                func_def.bind_type_expr = Expr {
-                    span: func_def.bind_type_expr.span,
-                    kind: r#type.into(),
-                };
+                let r#type =
+                    Self::as_type(type_value).push_err_span(func_def.bind_type_expr.span)?;
+                func_def.bind_type_expr.kind = r#type.into();
 
                 if !func_def.is_comptime {
-                    let return_scope = self.current_scope;
-                    self.bind_free(&func_def.func_bind.name);
-                    func_def.body = self.partial_eval(&func_def.body)?;
-                    self.current_scope = return_scope;
+                    func_def.body = self
+                        .partial_eval_body(
+                            &func_def.bind.name,
+                            func_def.recursive_name.as_ref().map(|name| &name.name),
+                            &func_def.body,
+                            self.current_scope,
+                        )
+                        .push_err_span(span)?;
                 }
 
                 ExprKind::FuncDef(func_def)
             }
-            ExprKind::IfThenElse(_) => expr.kind.clone(),
+            ExprKind::IfThenElse(if_else) => {
+                let condition = self.partial_eval(&if_else.condition).push_err_span(span)?;
+                let true_branch = self
+                    .partial_eval(&if_else.true_branch)
+                    .push_err_span(span)?;
+                let false_branch = self
+                    .partial_eval(&if_else.false_branch)
+                    .push_err_span(span)?;
+                ExprKind::IfThenElse(Box::new(IfThenElse {
+                    condition,
+                    true_branch,
+                    false_branch,
+                }))
+            }
+            ExprKind::MemberAccess(member) => {
+                if matches!(member.r#struct.kind, ExprKind::Value(_)) {
+                    self.comptime_eval(expr)?.into()
+                } else {
+                    assert!(!matches!(&member.r#struct.kind, ExprKind::FuncDef(_)));
+                    ExprKind::MemberAccess(member.clone())
+                }
+            }
+            ExprKind::StructInit(struct_init) => {
+                let r#struct = self
+                    .comptime_eval(&struct_init.struct_type)
+                    .push_err_span(span)?
+                    .as_type()
+                    .map_err(|non_type| {
+                        InterpretError::new(
+                            format!(
+                                "Non-type value <{:?}> given as struct type",
+                                non_type.get_type()
+                            ),
+                            span,
+                        )
+                    })?
+                    .as_struct()
+                    .map_err(|non_struct| {
+                        InterpretError::new(
+                            format!("Non-struct type <{:?}> given as struct type", non_struct),
+                            span,
+                        )
+                    })?;
+
+                let fields = struct_init
+                    .fields
+                    .iter()
+                    .map(|init| {
+                        Ok(StructInitField {
+                            span: init.span,
+                            name: init.name.clone(),
+                            value: self.partial_eval(&init.value).push_err_span(init.span)?,
+                        })
+                    })
+                    .collect::<Result<_, _>>()?;
+
+                ExprKind::StructInit(Box::new(StructInit {
+                    struct_type: Expr {
+                        span: struct_init.struct_type.span,
+                        kind: Value::Type(Box::new(Type::Struct(r#struct))).into(),
+                    },
+                    fields,
+                }))
+            }
             _ => {
                 return Err(InterpretError::new(
                     format!(
