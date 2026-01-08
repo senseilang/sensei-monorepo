@@ -362,7 +362,7 @@ impl<'i> DisplayContext<'i> {
                     writeln!(f)?;
                     ctx.with_indent(1, |ctx| {
                         ctx.write_indent(f)?;
-                        ctx.fmt_expr(f, &binary.lhs)
+                        ctx.fmt_expr(f, binary.lhs)
                     })?;
                     writeln!(f)?;
                     ctx.write_indent(f)?;
@@ -372,7 +372,7 @@ impl<'i> DisplayContext<'i> {
                     writeln!(f)?;
                     ctx.with_indent(1, |ctx| {
                         ctx.write_indent(f)?;
-                        ctx.fmt_expr(f, &binary.rhs)
+                        ctx.fmt_expr(f, binary.rhs)
                     })?;
                     writeln!(f)?;
                     ctx.write_indent(f)?;
@@ -408,7 +408,7 @@ impl<'i> DisplayContext<'i> {
                     writeln!(f)?;
                     ctx.with_indent(1, |ctx| {
                         ctx.write_indent(f)?;
-                        ctx.fmt_expr(f, &fn_call.fn_expr)
+                        ctx.fmt_expr(f, fn_call.fn_expr)
                     })?;
                     writeln!(f)?;
                     ctx.write_indent(f)?;

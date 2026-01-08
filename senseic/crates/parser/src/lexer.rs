@@ -1,8 +1,5 @@
 use logos::{Lexer as LogosLexer, Logos, Skip};
 
-use neosen_data::Span;
-pub type SourceSpan = Span<u32>;
-
 fn lex_skip_line_comment(lex: &mut LogosLexer<Token>) {
     let remainder = lex.remainder();
     let mut chars = remainder.char_indices().peekable();

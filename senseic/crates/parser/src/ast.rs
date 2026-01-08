@@ -1,14 +1,16 @@
-use crate::{const_print::const_assert_eq, lexer::SourceSpan};
+use crate::const_print::const_assert_eq;
 use allocator_api2::vec::Vec;
 use bumpalo::Bump;
 use inturn::Interner;
-use neosen_data::{X32, bigint::FrozenBigUint};
+use neosen_data::{Span, X32, bigint::FrozenBigUint};
 use std::convert::Infallible;
 
 pub struct InternedString;
 pub type IStr = X32<InternedString>;
 pub type StringInterner = Interner<IStr>;
 pub type AstBox<'ast, T> = &'ast mut T;
+
+pub type SourceSpan = Span<u32>;
 
 #[derive(Debug)]
 pub struct Ast<'ast> {

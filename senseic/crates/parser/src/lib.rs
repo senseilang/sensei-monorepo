@@ -1,6 +1,7 @@
 pub mod ast;
 mod display;
-mod lexer;
+pub mod lexer;
+mod parser;
 
 pub mod const_print;
 

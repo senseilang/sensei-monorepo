@@ -40,7 +40,8 @@ impl<M> X32<M> {
         }
     }
 
-    /// Safety: `value + 1` must not overflow 32-bits.
+    /// # Safety
+    /// `value + 1` must not overflow 32-bits.
     #[inline(always)]
     pub const unsafe fn new_unchecked(value: u32) -> Self {
         let idx = unsafe {
@@ -89,7 +90,7 @@ impl<M> InternerSymbol for X32<M> {
 
 impl<M> Clone for X32<M> {
     fn clone(&self) -> Self {
-        Self { idx: self.idx, _marker: PhantomData }
+        *self
     }
 }
 
@@ -105,7 +106,7 @@ impl<M> Eq for X32<M> {}
 
 impl<M> PartialOrd for X32<M> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.idx.cmp(&other.idx))
+        Some(self.cmp(other))
     }
 }
 

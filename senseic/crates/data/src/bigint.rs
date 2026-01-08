@@ -6,13 +6,13 @@ pub struct FrozenBigUint<'a>(&'a mut [u32]);
 const NIBBLE_BITS: usize = 4;
 const BITS_PER_LIMB: usize = u32::BITS as usize;
 const NIBBLES_PER_LIMB: usize = const {
-    assert!(BITS_PER_LIMB % NIBBLE_BITS == 0);
+    assert!(BITS_PER_LIMB.is_multiple_of(NIBBLE_BITS));
     BITS_PER_LIMB / NIBBLE_BITS
 };
 
 impl<'arena> FrozenBigUint<'arena> {
     pub fn limbs_le(&self) -> &[u32] {
-        &self.0
+        self.0
     }
 
     /// # Panics
