@@ -88,31 +88,7 @@ impl<'i> DisplayContext<'i> {
                 self.write_indent(f)?;
                 write!(f, ")")
             }
-            Declaration::PublicConstDef(const_def) => {
-                self.fmt_const_def(f, const_def, "public-const-def")
-            }
-            Declaration::ConstDef(const_def) => {
-                self.fmt_const_def(f, const_def, "private-const-def")
-            }
-            Declaration::Import(import) => {
-                write!(f, "(import ")?;
-                self.fmt_import_kind(f, &import.kind)?;
-                write!(f, " {:?})", import.path)
-            }
-        }
-    }
-
-    fn fmt_import_kind(&self, f: &mut fmt::Formatter<'_>, kind: &ImportKind<'_>) -> fmt::Result {
-        match kind {
-            ImportKind::All => write!(f, "*"),
-            ImportKind::As(alias) => write!(f, "(as {:?})", self.lookup(*alias)),
-            ImportKind::Selection(items) => {
-                write!(f, "(choice")?;
-                for item in items.iter() {
-                    write!(f, " {:?}", self.lookup(*item))?;
-                }
-                write!(f, ")")
-            }
+            Declaration::ConstDef(const_def) => self.fmt_const_def(f, const_def, "const-def"),
         }
     }
 
@@ -290,6 +266,36 @@ impl<'i> DisplayContext<'i> {
                 self.write_indent(f)?;
                 write!(f, ")")
             }
+            Statement::While(while_stmt) => {
+                write!(f, "(while")?;
+                if while_stmt.inline {
+                    write!(f, " inline")?;
+                }
+                writeln!(f)?;
+                self.with_indent(1, |ctx| {
+                    ctx.write_indent(f)?;
+                    writeln!(f, "(condition")?;
+                    ctx.with_indent(1, |ctx| {
+                        ctx.write_indent(f)?;
+                        ctx.fmt_expr(f, &while_stmt.condition)
+                    })?;
+                    writeln!(f)?;
+                    ctx.write_indent(f)?;
+                    writeln!(f, ")")?;
+                    ctx.write_indent(f)?;
+                    writeln!(f, "(body")?;
+                    ctx.with_indent(1, |ctx| {
+                        ctx.write_indent(f)?;
+                        ctx.fmt_block(f, &while_stmt.body)
+                    })?;
+                    writeln!(f)?;
+                    ctx.write_indent(f)?;
+                    writeln!(f, ")")?;
+                    Ok(())
+                })?;
+                self.write_indent(f)?;
+                write!(f, ")")
+            }
             Statement::Expr(expr) => {
                 writeln!(f, "(expr")?;
                 self.with_indent(1, |ctx| {
@@ -297,35 +303,6 @@ impl<'i> DisplayContext<'i> {
                     ctx.fmt_expr(f, expr)
                 })?;
                 writeln!(f)?;
-                self.write_indent(f)?;
-                write!(f, ")")
-            }
-            Statement::ConstDef(const_def) => {
-                write!(f, "(const-def {:?}", self.lookup(const_def.ident))?;
-                writeln!(f)?;
-                self.with_indent(1, |ctx| {
-                    if let Some(ty) = &const_def.r#type {
-                        ctx.write_indent(f)?;
-                        writeln!(f, "(type")?;
-                        ctx.with_indent(1, |ctx| {
-                            ctx.write_indent(f)?;
-                            ctx.fmt_type_expr(f, ty)
-                        })?;
-                        writeln!(f)?;
-                        ctx.write_indent(f)?;
-                        writeln!(f, ")")?;
-                    }
-                    ctx.write_indent(f)?;
-                    writeln!(f, "(value")?;
-                    ctx.with_indent(1, |ctx| {
-                        ctx.write_indent(f)?;
-                        ctx.fmt_expr(f, &const_def.expr)
-                    })?;
-                    writeln!(f)?;
-                    ctx.write_indent(f)?;
-                    writeln!(f, ")")?;
-                    Ok(())
-                })?;
                 self.write_indent(f)?;
                 write!(f, ")")
             }
@@ -352,6 +329,16 @@ impl<'i> DisplayContext<'i> {
                 write!(f, ")")
             }
             Expr::Block(block) => self.fmt_block(f, block),
+            Expr::Comptime(block) => {
+                writeln!(f, "(comptime")?;
+                self.with_indent(1, |ctx| {
+                    ctx.write_indent(f)?;
+                    ctx.fmt_block(f, block)
+                })?;
+                writeln!(f)?;
+                self.write_indent(f)?;
+                write!(f, ")")
+            }
             Expr::Binary(binary) => {
                 write!(f, "(binary ")?;
                 self.fmt_binary_op(f, &binary.op)?;

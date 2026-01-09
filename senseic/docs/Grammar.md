@@ -2,29 +2,21 @@
 
 ```ebnf
 program = decl*
-decl = init | run | const_def | import
-
-import = "import" (import_all | import_select) "from" STRING ";"
-import_all = "*" ("as" IDENT)?
-import_select = "{" IDENT+ "}"
+decl = init | run | const_def
 
 init = "init" block
 run = "run" block
+const_def = "const" IDENT (":" expr)? "=" expr ";"
 
-const_def = "export"? const_item ";"
-const_item = "const" IDENT (":" type_expr)? "=" expr
-
-expr = block | expr_no_block
+expr = ("comptime" block) | cond_expr | expr_no_block
 expr_no_block =
-    fn_call | binary_expr | paren_expr | member | type_def
-    | literal | IDENT | struct_lit
+    IDENT | literal | member
+    | fn_call | fn_def | struct_def | struct_lit
 
-type_expr = name_path | struct_def
-type_def = fn_def | struct_def
+cond_expr = "if" expr block ("else" "if" expr block)* "else" block
+
 
 block = "{" stmt* expr? "}"
-binary_expr = expr bin_op expr
-paren_expr = "(" expr ")"
 fn_call = expr "(" comma_separated{expr}? ")"
 member = expr "." IDENT
 
@@ -34,21 +26,22 @@ hex_literal = /-?0x[0-9A-Fa-f][0-9A-Fa-f_]*/
 bin_literal = /-?0b[01][01_]*/
 dec_literal = /-?[0-9][0-9_]*/
 
-cond_stmt = "if" expr block ("else" "if" expr block)* ("else" block)?
+cond_stmt = "if" expr block ("else" "if" expr block)*
 
 stmt =
-    (const_item | expr_no_block | return | assign | let) ";"
-    | block ";"?
-    | cond_stmt
+    (expr_no_block | return | assign | let) ";"
+    | (block | cond_expr) ";"?
+    | cond_stmt | while
 
-let = "let" "mut"? IDENT (":" type_expr)? "=" expr
+while = "inline"? "while" expr block
+let = "let" "mut"? IDENT (":" expr)? "=" expr
 return = "return" expr
 assign = name_path "=" expr
 
-fn_def = "fn" "(" param_def_list? ")" ("->" type_expr)? block
-param_def_list = comma_separated{IDENT ":" type_expr}
+fn_def = "fn" "(" param_def_list? ")" ("->" expr)? block
+param_def_list = comma_separated{"comptime"? IDENT ":" expr}
 
-struct_def = "struct" "{" comma_separated{IDENT ":" type_expr}? "}"
+struct_def = "struct" "{" comma_separated{IDENT ":" expr}? "}"
 struct_lit = name_path "{" comma_separated{IDENT ":" expr} "}"
 
 comma_separated{p} = (p ("," p)* ","?)

@@ -20,21 +20,6 @@ pub enum Declaration<'ast> {
     Init(Block<'ast>),
     Run(Block<'ast>),
     ConstDef(ConstDef<'ast>),
-    PublicConstDef(ConstDef<'ast>),
-    Import(Import<'ast>),
-}
-
-#[derive(Debug)]
-pub struct Import<'ast> {
-    pub kind: ImportKind<'ast>,
-    pub path: AstBox<'ast, str>,
-}
-
-#[derive(Debug)]
-pub enum ImportKind<'ast> {
-    All,
-    As(IStr),
-    Selection(AstBox<'ast, [IStr]>),
 }
 
 #[derive(Debug)]
@@ -57,8 +42,15 @@ pub enum Statement<'ast> {
     Assign(AstBox<'ast, AssignStmt<'ast>>),
     Block(Block<'ast>),
     Conditional(AstBox<'ast, Conditional<'ast, ()>>),
+    While(AstBox<'ast, WhileStmt<'ast>>),
     Expr(Expr<'ast>),
-    ConstDef(AstBox<'ast, ConstDef<'ast>>),
+}
+
+#[derive(Debug)]
+pub struct WhileStmt<'ast> {
+    pub inline: bool,
+    pub condition: Expr<'ast>,
+    pub body: Block<'ast>,
 }
 
 #[derive(Debug)]
@@ -74,12 +66,6 @@ pub struct AssignStmt<'ast> {
     pub target: NamePath<'ast>,
     pub op: AssignOp,
     pub value: Expr<'ast>,
-}
-
-#[derive(Debug)]
-pub enum AssignTarget<'ast> {
-    Ident(IStr),
-    Member(Member<'ast>),
 }
 
 #[derive(Debug)]
@@ -109,6 +95,7 @@ pub struct FnDef<'ast> {
 
 #[derive(Debug)]
 pub struct ParamDef<'ast> {
+    pub comptime: bool,
     pub name: IStr,
     pub r#type: TypeExpr<'ast>,
 }
@@ -180,6 +167,7 @@ pub struct Member<'ast> {
 pub enum Expr<'ast> {
     TypeDef(TypeDef<'ast>),
     Block(Block<'ast>),
+    Comptime(Block<'ast>),
     Binary(BinaryExpr<'ast>),
     IntLiteral(IntLiteral<'ast>),
     BoolLiteral(bool),
