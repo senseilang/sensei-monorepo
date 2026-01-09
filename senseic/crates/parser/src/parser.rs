@@ -261,6 +261,21 @@ impl<'src, 'ast> Parser<'src, 'ast> {
             unreachable!()
         }
     }
+
+    pub fn parse_bool_literal(&mut self) -> Result<Spanned<bool>, ParseError> {
+        let value = if self.check_noexpect(Token::True) {
+            true
+        } else if self.check_noexpect(Token::False) {
+            false
+        } else {
+            self.push_expected(ExpectedToken::Literal);
+            self.expected_one_of_not_found(&[])?;
+            unreachable!()
+        };
+        let span = self.token_span;
+        self.bump();
+        Ok(Spanned::new(span, value))
+    }
 }
 
 fn format_expected_list(expected: &[ExpectedToken]) -> String {
@@ -475,5 +490,50 @@ mod tests {
         let result = parser.parse_ident();
         assert!(result.is_err());
         assert!(parser.has_errors());
+    }
+
+    #[test]
+    fn test_parse_bool_literal_true() {
+        let arena = Bump::new();
+        let mut parser = new_parser("true", &arena);
+
+        let result = parser.parse_bool_literal().unwrap();
+        assert!(result.inner);
+        assert_eq!(result.span, Span::new(0, 4));
+        assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_bool_literal_false() {
+        let arena = Bump::new();
+        let mut parser = new_parser("false", &arena);
+
+        let result = parser.parse_bool_literal().unwrap();
+        assert!(!result.inner);
+        assert_eq!(result.span, Span::new(0, 5));
+        assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_bool_literal_fails_on_ident() {
+        let arena = Bump::new();
+        let mut parser = new_parser("truthy", &arena);
+
+        let result = parser.parse_bool_literal();
+        assert!(result.is_err());
+        assert!(parser.has_errors());
+    }
+
+    #[test]
+    fn test_parse_bool_literal_advances() {
+        let arena = Bump::new();
+        let mut parser = new_parser("true false", &arena);
+
+        let first = parser.parse_bool_literal().unwrap();
+        assert!(first.inner);
+
+        let second = parser.parse_bool_literal().unwrap();
+        assert!(!second.inner);
+        assert!(parser.at_eof());
     }
 }

@@ -80,7 +80,7 @@
       "name": "Boolean Literals",
       "description": "Parse 'true' and 'false' tokens into Expr::BoolLiteral(bool). Track span.",
       "dependencies": ["infra-02"],
-      "completed": false
+      "completed": true
     },
     {
       "id": "atom-03",
