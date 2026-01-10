@@ -200,7 +200,7 @@
       "name": "Statement Dispatch (Stub)",
       "description": "Implement initial parse_stmt() stub that can be extended as statement variants are implemented. Start with minimal dispatch, add cases incrementally.",
       "dependencies": ["infra-02"],
-      "completed": false
+      "completed": true
     },
     {
       "id": "stmt-01",

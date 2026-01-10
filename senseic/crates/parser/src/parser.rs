@@ -493,6 +493,30 @@ impl<'src, 'ast> Parser<'src, 'ast> {
         Ok(StructDef { fields })
     }
 
+    pub fn parse_stmt(&mut self) -> Result<Statement<'ast>, ParseError> {
+        if self.check_noexpect(Token::Let) {
+            todo!("stmt-01: let statement")
+        } else if self.check_noexpect(Token::Return) {
+            todo!("stmt-02: return statement")
+        } else if self.check_noexpect(Token::If) {
+            todo!("stmt-05: conditional statement")
+        } else if self.check_noexpect(Token::LeftCurly) {
+            todo!("stmt-04: block statement")
+        } else if self.check_noexpect(Token::Inline) || self.check_noexpect(Token::While) {
+            todo!("stmt-07: while statement")
+        } else if self.check_noexpect(Token::Identifier) {
+            todo!("stmt-03/stmt-06: assign or expression statement")
+        } else {
+            self.push_expected(ExpectedToken::Token(Token::Let));
+            self.push_expected(ExpectedToken::Token(Token::Return));
+            self.push_expected(ExpectedToken::Token(Token::If));
+            self.push_expected(ExpectedToken::Token(Token::LeftCurly));
+            self.push_expected(ExpectedToken::Token(Token::While));
+            self.push_expected(ExpectedToken::Expr);
+            Err(self.unexpected_token())
+        }
+    }
+
     pub fn parse_comma_separated_until<T>(
         &mut self,
         stop: Token,
@@ -1079,5 +1103,25 @@ mod tests {
         let result = parser.parse_struct_def().unwrap();
         assert_eq!(result.fields.len(), 2);
         assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_stmt_fails_on_invalid_token() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("+", &arena);
+
+        let result = parser.parse_stmt();
+        assert!(result.is_err());
+        assert!(parser.diagnostics.has_errors());
+    }
+
+    #[test]
+    fn test_parse_stmt_fails_on_eof() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("", &arena);
+
+        let result = parser.parse_stmt();
+        assert!(result.is_err());
+        assert!(parser.diagnostics.has_errors());
     }
 }
