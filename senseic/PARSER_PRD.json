@@ -216,7 +216,7 @@
       "name": "Return Statement",
       "description": "Parse 'return expr;' into Statement::Return. Add case to stmt dispatch.",
       "dependencies": ["expr-09", "stmt-08"],
-      "completed": false
+      "completed": true
     },
     {
       "id": "stmt-03",

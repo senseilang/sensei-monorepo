@@ -614,6 +614,13 @@ impl<'src, 'ast> Parser<'src, 'ast> {
         Ok(Expr::Comptime(block))
     }
 
+    pub fn parse_return_stmt(&mut self) -> Result<Statement<'ast>, ParseError> {
+        self.expect(Token::Return)?;
+        let expr = self.parse_expr()?;
+        self.expect(Token::Semicolon)?;
+        Ok(Statement::Return(expr))
+    }
+
     pub fn parse_cond_expr(&mut self) -> Result<Expr<'ast>, ParseError> {
         self.expect(Token::If)?;
 
@@ -769,7 +776,7 @@ impl<'src, 'ast> Parser<'src, 'ast> {
         if self.check_noexpect(Token::Let) {
             todo!("stmt-01: let statement")
         } else if self.check_noexpect(Token::Return) {
-            todo!("stmt-02: return statement")
+            self.parse_return_stmt()
         } else if self.check_noexpect(Token::If) {
             todo!("stmt-05: conditional statement")
         } else if self.check_noexpect(Token::LeftCurly) {
@@ -1949,5 +1956,69 @@ mod tests {
         let result = parser.parse_expr().unwrap();
         assert!(matches!(result, Expr::FnCall(_)));
         assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_return_stmt_simple() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("return 42;", &arena);
+
+        let result = parser.parse_stmt().unwrap();
+        assert!(matches!(result, Statement::Return(_)));
+        if let Statement::Return(expr) = result {
+            assert!(matches!(expr, Expr::IntLiteral(_)));
+        }
+        assert!(parser.at_eof());
+        assert!(!parser.diagnostics.has_errors());
+    }
+
+    #[test]
+    fn test_parse_return_stmt_identifier() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("return foo;", &arena);
+
+        let result = parser.parse_stmt().unwrap();
+        assert!(matches!(result, Statement::Return(_)));
+        if let Statement::Return(Expr::Ident(istr)) = result {
+            assert_eq!(parser.interner.resolve(istr), "foo");
+        } else {
+            panic!("expected Return with Ident");
+        }
+        assert!(parser.at_eof());
+        assert!(!parser.diagnostics.has_errors());
+    }
+
+    #[test]
+    fn test_parse_return_stmt_complex_expr() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("return foo.bar();", &arena);
+
+        let result = parser.parse_stmt().unwrap();
+        assert!(matches!(result, Statement::Return(_)));
+        if let Statement::Return(expr) = result {
+            assert!(matches!(expr, Expr::FnCall(_)));
+        }
+        assert!(parser.at_eof());
+        assert!(!parser.diagnostics.has_errors());
+    }
+
+    #[test]
+    fn test_parse_return_stmt_missing_semicolon_at_eof_recovers() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("return 42", &arena);
+
+        let result = parser.parse_stmt().unwrap();
+        assert!(matches!(result, Statement::Return(_)));
+        assert!(parser.diagnostics.has_errors());
+    }
+
+    #[test]
+    fn test_parse_return_stmt_missing_semicolon_before_token_fails() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("return 42 foo", &arena);
+
+        let result = parser.parse_stmt();
+        assert!(result.is_err());
+        assert!(parser.diagnostics.has_errors());
     }
 }
