@@ -286,6 +286,10 @@ impl<'src, 'ast> Parser<'src, 'ast> {
         self.token.is_none()
     }
 
+    pub fn peek_token(&mut self) -> Option<Token> {
+        self.tokens.peek().map(|(t, _)| *t)
+    }
+
     pub fn slice(&self, span: SourceSpan) -> &'src str {
         &self.source[span.start as usize..span.end as usize]
     }
@@ -644,6 +648,93 @@ impl<'src, 'ast> Parser<'src, 'ast> {
                 return Ok(Expr::Conditional(self.arena.alloc(cond)));
             }
         }
+    }
+
+    pub fn parse_expr(&mut self) -> Result<Expr<'ast>, ParseError> {
+        if self.check_noexpect(Token::Comptime) {
+            self.parse_comptime_block()
+        } else if self.check_noexpect(Token::If) {
+            self.parse_cond_expr()
+        } else if self.check_noexpect(Token::LeftCurly) {
+            let block = self.parse_block()?;
+            Ok(Expr::Block(block))
+        } else {
+            self.parse_expr_no_block()
+        }
+    }
+
+    pub fn parse_expr_no_block(&mut self) -> Result<Expr<'ast>, ParseError> {
+        if self.check_noexpect(Token::Fn) || self.check_noexpect(Token::Struct) {
+            let type_def = self.parse_type_def()?;
+            Ok(Expr::TypeDef(type_def))
+        } else if self.check_noexpect(Token::Identifier)
+            && self.peek_token() == Some(Token::LeftCurly)
+        {
+            let struct_lit = self.parse_struct_literal()?;
+            Ok(Expr::StructLiteral(self.arena.alloc(struct_lit)))
+        } else if self.check_noexpect(Token::Identifier) && self.peek_token() == Some(Token::Dot) {
+            self.parse_struct_literal_or_postfix()
+        } else {
+            self.parse_postfix_expr()
+        }
+    }
+
+    fn parse_struct_literal_or_postfix(&mut self) -> Result<Expr<'ast>, ParseError> {
+        let first_ident = self.parse_ident()?;
+
+        let mut path_segments = std::vec::Vec::new();
+        path_segments.push(first_ident.inner);
+
+        while self.eat(Token::Dot) {
+            if self.check_noexpect(Token::Identifier) {
+                let segment = self.parse_ident()?;
+                path_segments.push(segment.inner);
+
+                if self.check_noexpect(Token::LeftCurly) {
+                    let type_path = NamePath(self.arena.alloc_slice_copy(&path_segments));
+
+                    let (fields, _recovered) =
+                        self.parse_comma_separated(Token::LeftCurly, Token::RightCurly, |p| {
+                            p.parse_field_init()
+                        })?;
+
+                    let fields = self.arena.alloc_slice_fill_iter(fields);
+                    return Ok(Expr::StructLiteral(
+                        self.arena.alloc(StructLiteral { type_path, fields }),
+                    ));
+                }
+            } else {
+                self.push_expected(ExpectedToken::Ident);
+                return Err(self.unexpected_token());
+            }
+        }
+
+        let mut expr = Expr::Ident(path_segments[0]);
+        for &segment in &path_segments[1..] {
+            let member = Member { expr: self.arena.alloc(expr), ident: segment };
+            expr = Expr::Member(member);
+        }
+
+        loop {
+            if self.eat(Token::Dot) {
+                let ident = self.parse_ident()?;
+                let member = Member { expr: self.arena.alloc(expr), ident: ident.inner };
+                expr = Expr::Member(member);
+            } else if self.check_noexpect(Token::LeftRound) {
+                let (args, _recovered) =
+                    self.parse_comma_separated(Token::LeftRound, Token::RightRound, |p| {
+                        p.parse_postfix_expr()
+                    })?;
+
+                let param_exprs = self.arena.alloc_slice_fill_iter(args);
+                let call = FnCall { fn_expr: self.arena.alloc(expr), param_exprs };
+                expr = Expr::FnCall(call);
+            } else {
+                break;
+            }
+        }
+
+        Ok(expr)
     }
 
     fn is_stmt_start(&self) -> bool {
@@ -1757,5 +1848,106 @@ mod tests {
         let result = parser.parse_cond_expr().unwrap();
         assert!(matches!(result, Expr::Conditional(_)));
         assert!(parser.diagnostics.has_errors());
+    }
+
+    #[test]
+    fn test_parse_expr_no_block_ident() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("foo", &arena);
+
+        let result = parser.parse_expr_no_block().unwrap();
+        assert!(matches!(result, Expr::Ident(_)));
+        assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_expr_no_block_literal() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("42", &arena);
+
+        let result = parser.parse_expr_no_block().unwrap();
+        assert!(matches!(result, Expr::IntLiteral(_)));
+        assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_expr_no_block_struct_literal() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("Point { x: 1, y: 2 }", &arena);
+
+        let result = parser.parse_expr_no_block().unwrap();
+        assert!(matches!(result, Expr::StructLiteral(_)));
+        assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_expr_no_block_fn_def() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("fn (x: u32) -> u64 {}", &arena);
+
+        let result = parser.parse_expr_no_block().unwrap();
+        assert!(matches!(result, Expr::TypeDef(TypeDef::FnDef(_))));
+        assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_expr_no_block_struct_def() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("struct { x: u32 }", &arena);
+
+        let result = parser.parse_expr_no_block().unwrap();
+        assert!(matches!(result, Expr::TypeDef(TypeDef::StructDef(_))));
+        assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_expr_no_block_postfix_chain() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("foo.bar()", &arena);
+
+        let result = parser.parse_expr_no_block().unwrap();
+        assert!(matches!(result, Expr::FnCall(_)));
+        assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_expr_comptime() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("comptime { 42 }", &arena);
+
+        let result = parser.parse_expr().unwrap();
+        assert!(matches!(result, Expr::Comptime(_)));
+        assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_expr_block() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("{ foo }", &arena);
+
+        let result = parser.parse_expr().unwrap();
+        assert!(matches!(result, Expr::Block(_)));
+        assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_expr_conditional() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("if true { 1 } else { 2 }", &arena);
+
+        let result = parser.parse_expr().unwrap();
+        assert!(matches!(result, Expr::Conditional(_)));
+        assert!(parser.at_eof());
+        assert!(!parser.diagnostics.has_errors());
+    }
+
+    #[test]
+    fn test_parse_expr_delegates_to_no_block() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("foo.bar(42)", &arena);
+
+        let result = parser.parse_expr().unwrap();
+        assert!(matches!(result, Expr::FnCall(_)));
+        assert!(parser.at_eof());
     }
 }

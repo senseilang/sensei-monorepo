@@ -192,7 +192,7 @@
       "name": "Expression Dispatch",
       "description": "Implement top-level parse_expr() (includes blocks, comptime) and parse_expr_no_block() (excludes blocks, used in statements). Coordinate postfix and primary expression parsing. Include type_def (fn/struct) and comptime as valid expression forms.",
       "dependencies": ["expr-02", "expr-05", "expr-07", "expr-08", "expr-10", "type-05"],
-      "completed": false
+      "completed": true
     },
     {
       "id": "stmt-08",
