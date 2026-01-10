@@ -8,7 +8,7 @@
       "name": "Add Spans to AST Nodes",
       "description": "Add SourceSpan field to: Declaration variants, Block, ConstDef, Statement variants, LetStmt, AssignStmt, WhileStmt, FnDef, ParamDef, FieldDef, StructDef, FieldInit, StructLiteral, NamePath, Expr variants (or Expr itself), BinaryExpr, FnCall, Conditional, IfBranch, Member, IntLiteral. Update size assertions. When adding spans to parallel enum variants turn the enum into <Name>Kind enum and create a <Name> struct with kind & span fields.",
       "dependencies": [],
-      "completed": false
+      "completed": true
     },
     {
       "id": "ast-02",

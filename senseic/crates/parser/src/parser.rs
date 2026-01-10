@@ -318,25 +318,34 @@ impl<'src, 'ast> Parser<'src, 'ast> {
     }
 
     pub fn parse_init_decl(&mut self) -> Result<Declaration<'ast>, ParseError> {
+        let lo = self.current_span;
         self.expect(Token::Init)?;
         let block = self.parse_block()?;
-        Ok(Declaration::Init(block))
+        let span = lo.to(self.prev_span);
+        Ok(Declaration { span, kind: DeclarationKind::Init(block) })
     }
 
     pub fn parse_run_decl(&mut self) -> Result<Declaration<'ast>, ParseError> {
+        let lo = self.current_span;
         self.expect(Token::Run)?;
         let block = self.parse_block()?;
-        Ok(Declaration::Run(block))
+        let span = lo.to(self.prev_span);
+        Ok(Declaration { span, kind: DeclarationKind::Run(block) })
     }
 
     pub fn parse_const_def(&mut self) -> Result<Declaration<'ast>, ParseError> {
+        let lo = self.current_span;
         self.expect(Token::Const)?;
         let ident = self.parse_ident()?.inner;
         let r#type = if self.eat(Token::Colon) { Some(self.parse_expr()?) } else { None };
         self.expect(Token::Equals)?;
         let expr = self.parse_expr()?;
         self.expect(Token::Semicolon)?;
-        Ok(Declaration::ConstDef(ConstDef { ident, r#type, expr }))
+        let span = lo.to(self.prev_span);
+        Ok(Declaration {
+            span,
+            kind: DeclarationKind::ConstDef(ConstDef { span, ident, r#type, expr }),
+        })
     }
 
     pub fn parse_ident(&mut self) -> Result<Ident, ParseError> {
@@ -389,37 +398,39 @@ impl<'src, 'ast> Parser<'src, 'ast> {
         };
 
         self.bump();
-        Ok(Spanned::new(span, IntLiteral { positive, num }))
+        Ok(Spanned::new(span, IntLiteral { span, positive, num }))
     }
 
     pub fn parse_name_path(&mut self) -> Result<NamePath<'ast>, ParseError> {
-        let mut segments = std::vec::Vec::new();
+        let mut path_segments = std::vec::Vec::new();
 
         let first = self.parse_ident()?;
-        segments.push(first.inner);
+        let lo = first.span;
+        path_segments.push(first.inner);
 
         while self.eat(Token::Dot) {
             let segment = self.parse_ident()?;
-            segments.push(segment.inner);
+            path_segments.push(segment.inner);
         }
 
-        let path = self.arena.alloc_slice_copy(&segments);
-        Ok(NamePath(path))
+        let span = lo.to(self.prev_span);
+        let segments = self.arena.alloc_slice_copy(&path_segments);
+        Ok(NamePath { span, segments })
     }
 
     pub fn parse_primary_expr(&mut self) -> Result<Expr<'ast>, ParseError> {
         if self.check_noexpect(Token::Identifier) {
             let ident = self.parse_ident()?;
-            Ok(Expr::Ident(ident.inner))
+            Ok(Expr { span: ident.span, kind: ExprKind::Ident(ident.inner) })
         } else if self.check_noexpect(Token::True) || self.check_noexpect(Token::False) {
             let bool_lit = self.parse_bool_literal()?;
-            Ok(Expr::BoolLiteral(bool_lit.inner))
+            Ok(Expr { span: bool_lit.span, kind: ExprKind::BoolLiteral(bool_lit.inner) })
         } else if self.check_noexpect(Token::DecLiteral)
             || self.check_noexpect(Token::HexLiteral)
             || self.check_noexpect(Token::BinLiteral)
         {
             let int_lit = self.parse_int_literal()?;
-            Ok(Expr::IntLiteral(int_lit.inner))
+            Ok(Expr { span: int_lit.span, kind: ExprKind::IntLiteral(int_lit.inner) })
         } else {
             self.push_expected(ExpectedToken::Expr);
             Err(self.unexpected_token())
@@ -428,21 +439,24 @@ impl<'src, 'ast> Parser<'src, 'ast> {
 
     pub fn parse_postfix_expr(&mut self) -> Result<Expr<'ast>, ParseError> {
         let mut expr = self.parse_primary_expr()?;
+        let lo = expr.span;
 
         loop {
             if self.eat(Token::Dot) {
                 let ident = self.parse_ident()?;
-                let member = Member { expr: self.arena.alloc(expr), ident: ident.inner };
-                expr = Expr::Member(member);
+                let span = lo.to(ident.span);
+                let member = Member { span, expr: self.arena.alloc(expr), ident: ident.inner };
+                expr = Expr { span, kind: ExprKind::Member(member) };
             } else if self.check_noexpect(Token::LeftRound) {
                 let (args, _recovered) =
                     self.parse_comma_separated(Token::LeftRound, Token::RightRound, |p| {
                         p.parse_postfix_expr()
                     })?;
 
+                let span = lo.to(self.prev_span);
                 let param_exprs = self.arena.alloc_slice_fill_iter(args);
-                let call = FnCall { fn_expr: self.arena.alloc(expr), param_exprs };
-                expr = Expr::FnCall(call);
+                let call = FnCall { span, fn_expr: self.arena.alloc(expr), param_exprs };
+                expr = Expr { span, kind: ExprKind::FnCall(call) };
             } else {
                 break;
             }
@@ -513,32 +527,39 @@ impl<'src, 'ast> Parser<'src, 'ast> {
     }
 
     pub fn parse_field_def(&mut self) -> Result<FieldDef<'ast>, ParseError> {
-        let name = self.parse_ident()?.inner;
+        let ident = self.parse_ident()?;
+        let lo = ident.span;
         self.expect(Token::Colon)?;
         let r#type = self.parse_primary_expr()?;
-        Ok(FieldDef { name, r#type })
+        let span = lo.to(r#type.span);
+        Ok(FieldDef { span, name: ident.inner, r#type })
     }
 
     pub fn parse_field_init(&mut self) -> Result<FieldInit<'ast>, ParseError> {
-        let name = self.parse_ident()?.inner;
+        let ident = self.parse_ident()?;
+        let lo = ident.span;
         self.expect(Token::Colon)?;
         let value = self.parse_postfix_expr()?;
-        Ok(FieldInit { name, value })
+        let span = lo.to(value.span);
+        Ok(FieldInit { span, name: ident.inner, value })
     }
 
     pub fn parse_struct_literal(&mut self) -> Result<StructLiteral<'ast>, ParseError> {
         let type_path = self.parse_name_path()?;
+        let lo = type_path.span;
 
         let (fields, _recovered) =
             self.parse_comma_separated(Token::LeftCurly, Token::RightCurly, |p| {
                 p.parse_field_init()
             })?;
 
+        let span = lo.to(self.prev_span);
         let fields = self.arena.alloc_slice_fill_iter(fields);
-        Ok(StructLiteral { type_path, fields })
+        Ok(StructLiteral { span, type_path, fields })
     }
 
     pub fn parse_struct_def(&mut self) -> Result<StructDef<'ast>, ParseError> {
+        let lo = self.current_span;
         self.expect(Token::Struct)?;
 
         let (fields, _recovered) =
@@ -546,19 +567,24 @@ impl<'src, 'ast> Parser<'src, 'ast> {
                 p.parse_field_def()
             })?;
 
+        let span = lo.to(self.prev_span);
         let fields = self.arena.alloc_slice_fill_iter(fields);
-        Ok(StructDef { fields })
+        Ok(StructDef { span, fields })
     }
 
     pub fn parse_param_def(&mut self) -> Result<ParamDef<'ast>, ParseError> {
+        let lo = self.current_span;
         let comptime = self.eat(Token::Comptime);
+        let lo = if comptime { lo } else { self.current_span };
         let name = self.parse_ident()?.inner;
         self.expect(Token::Colon)?;
         let r#type = self.parse_primary_expr()?;
-        Ok(ParamDef { comptime, name, r#type })
+        let span = lo.to(r#type.span);
+        Ok(ParamDef { span, comptime, name, r#type })
     }
 
     pub fn parse_fn_def(&mut self) -> Result<FnDef<'ast>, ParseError> {
+        let lo = self.current_span;
         self.expect(Token::Fn)?;
 
         let (params, _recovered) =
@@ -571,8 +597,9 @@ impl<'src, 'ast> Parser<'src, 'ast> {
 
         let body = self.parse_block()?;
 
+        let span = lo.to(self.prev_span);
         let params = self.arena.alloc_slice_fill_iter(params);
-        Ok(FnDef { params, result, body })
+        Ok(FnDef { span, params, result, body })
     }
 
     pub fn parse_type_def(&mut self) -> Result<TypeDef<'ast>, ParseError> {
@@ -620,7 +647,8 @@ impl<'src, 'ast> Parser<'src, 'ast> {
                 let expr = self.parse_primary_expr()?;
 
                 if self.eat(Token::Semicolon) {
-                    statements.push(Statement::Expr(expr));
+                    let stmt_span = expr.span.to(self.prev_span);
+                    statements.push(Statement { span: stmt_span, kind: StatementKind::Expr(expr) });
                 } else if self.check_noexpect(Token::RightCurly) || self.at_eof() {
                     last_expr = Some(expr);
                 } else {
@@ -635,26 +663,32 @@ impl<'src, 'ast> Parser<'src, 'ast> {
             }
         }
 
+        let span = open_span.to(self.prev_span);
         let statements = self.arena.alloc_slice_fill_iter(statements);
         let last_expr = last_expr.map(|e| self.arena.alloc(e) as &mut _);
 
-        Ok(Block { statements, last_expr })
+        Ok(Block { span, statements, last_expr })
     }
 
     pub fn parse_comptime_block(&mut self) -> Result<Expr<'ast>, ParseError> {
+        let lo = self.current_span;
         self.expect(Token::Comptime)?;
         let block = self.parse_block()?;
-        Ok(Expr::Comptime(block))
+        let span = lo.to(self.prev_span);
+        Ok(Expr { span, kind: ExprKind::Comptime(block) })
     }
 
     pub fn parse_return_stmt(&mut self) -> Result<Statement<'ast>, ParseError> {
+        let lo = self.current_span;
         self.expect(Token::Return)?;
         let expr = self.parse_expr()?;
         self.expect(Token::Semicolon)?;
-        Ok(Statement::Return(expr))
+        let span = lo.to(self.prev_span);
+        Ok(Statement { span, kind: StatementKind::Return(expr) })
     }
 
     pub fn parse_let_stmt(&mut self) -> Result<Statement<'ast>, ParseError> {
+        let lo = self.current_span;
         self.expect(Token::Let)?;
 
         let mutable = self.eat(Token::Mut);
@@ -666,22 +700,26 @@ impl<'src, 'ast> Parser<'src, 'ast> {
         let value = self.parse_expr()?;
         self.expect(Token::Semicolon)?;
 
-        let let_stmt = LetStmt { mutable, ident, r#type, value };
-        Ok(Statement::Let(self.arena.alloc(let_stmt)))
+        let span = lo.to(self.prev_span);
+        let let_stmt = LetStmt { span, mutable, ident, r#type, value };
+        Ok(Statement { span, kind: StatementKind::Let(self.arena.alloc(let_stmt)) })
     }
 
     pub fn parse_assign_stmt(&mut self) -> Result<Statement<'ast>, ParseError> {
         let target = self.parse_name_path()?;
+        let lo = target.span;
         self.expect(Token::Equals)?;
         let value = self.parse_expr()?;
         self.expect(Token::Semicolon)?;
 
-        let assign_stmt = AssignStmt { target, op: AssignOp::Assign, value };
-        Ok(Statement::Assign(self.arena.alloc(assign_stmt)))
+        let span = lo.to(self.prev_span);
+        let assign_stmt = AssignStmt { span, target, op: AssignOp::Assign, value };
+        Ok(Statement { span, kind: StatementKind::Assign(self.arena.alloc(assign_stmt)) })
     }
 
     fn parse_assign_or_expr_stmt(&mut self) -> Result<Statement<'ast>, ParseError> {
         let first_ident = self.parse_ident()?;
+        let lo = first_ident.span;
         let mut path_segments = std::vec::Vec::new();
         path_segments.push(first_ident.inner);
 
@@ -696,49 +734,58 @@ impl<'src, 'ast> Parser<'src, 'ast> {
         }
 
         if self.eat(Token::Equals) {
-            let target = NamePath(self.arena.alloc_slice_copy(&path_segments));
+            let path_span = lo.to(self.prev_span);
+            let target =
+                NamePath { span: path_span, segments: self.arena.alloc_slice_copy(&path_segments) };
             let value = self.parse_expr()?;
             self.expect(Token::Semicolon)?;
 
-            let assign_stmt = AssignStmt { target, op: AssignOp::Assign, value };
-            Ok(Statement::Assign(self.arena.alloc(assign_stmt)))
+            let span = lo.to(self.prev_span);
+            let assign_stmt = AssignStmt { span, target, op: AssignOp::Assign, value };
+            Ok(Statement { span, kind: StatementKind::Assign(self.arena.alloc(assign_stmt)) })
         } else {
-            let mut expr = Expr::Ident(path_segments[0]);
+            let mut expr = Expr { span: first_ident.span, kind: ExprKind::Ident(path_segments[0]) };
             for &segment in &path_segments[1..] {
-                let member = Member { expr: self.arena.alloc(expr), ident: segment };
-                expr = Expr::Member(member);
+                let span = lo.to(self.prev_span);
+                let member = Member { span, expr: self.arena.alloc(expr), ident: segment };
+                expr = Expr { span, kind: ExprKind::Member(member) };
             }
 
             loop {
                 if self.eat(Token::Dot) {
                     let ident = self.parse_ident()?;
-                    let member = Member { expr: self.arena.alloc(expr), ident: ident.inner };
-                    expr = Expr::Member(member);
+                    let span = lo.to(ident.span);
+                    let member = Member { span, expr: self.arena.alloc(expr), ident: ident.inner };
+                    expr = Expr { span, kind: ExprKind::Member(member) };
                 } else if self.check_noexpect(Token::LeftRound) {
                     let (args, _recovered) =
                         self.parse_comma_separated(Token::LeftRound, Token::RightRound, |p| {
                             p.parse_postfix_expr()
                         })?;
 
+                    let span = lo.to(self.prev_span);
                     let param_exprs = self.arena.alloc_slice_fill_iter(args);
-                    let call = FnCall { fn_expr: self.arena.alloc(expr), param_exprs };
-                    expr = Expr::FnCall(call);
+                    let call = FnCall { span, fn_expr: self.arena.alloc(expr), param_exprs };
+                    expr = Expr { span, kind: ExprKind::FnCall(call) };
                 } else {
                     break;
                 }
             }
 
             self.expect(Token::Semicolon)?;
-            Ok(Statement::Expr(expr))
+            let span = lo.to(self.prev_span);
+            Ok(Statement { span, kind: StatementKind::Expr(expr) })
         }
     }
 
     pub fn parse_cond_expr(&mut self) -> Result<Expr<'ast>, ParseError> {
+        let lo = self.current_span;
         self.expect(Token::If)?;
 
         let condition = self.parse_postfix_expr()?;
         let body = self.parse_block()?;
-        let r#if = IfBranch { condition, body };
+        let if_span = lo.to(body.span);
+        let r#if = IfBranch { span: if_span, condition, body };
 
         let mut else_ifs = std::vec::Vec::new();
 
@@ -746,25 +793,31 @@ impl<'src, 'ast> Parser<'src, 'ast> {
             if !self.eat(Token::Else) {
                 self.diagnostics
                     .report(self.current_span, "conditional expression requires an `else` branch");
+                let dummy_span = self.current_span;
                 let else_body = MaybeOr::Just(Block {
+                    span: dummy_span,
                     statements: self.arena.alloc_slice_fill_iter(std::iter::empty()),
                     last_expr: None,
                 });
+                let span = lo.to(self.prev_span);
                 let else_ifs = self.arena.alloc_slice_fill_iter(else_ifs);
-                let cond = Conditional { r#if, else_ifs, else_body };
-                return Ok(Expr::Conditional(self.arena.alloc(cond)));
+                let cond = Conditional { span, r#if, else_ifs, else_body };
+                return Ok(Expr { span, kind: ExprKind::Conditional(self.arena.alloc(cond)) });
             }
 
             if self.eat(Token::If) {
+                let else_if_lo = self.prev_span;
                 let condition = self.parse_postfix_expr()?;
                 let body = self.parse_block()?;
-                else_ifs.push(IfBranch { condition, body });
+                let else_if_span = else_if_lo.to(body.span);
+                else_ifs.push(IfBranch { span: else_if_span, condition, body });
             } else {
                 let else_block = self.parse_block()?;
                 let else_body = MaybeOr::Just(else_block);
+                let span = lo.to(self.prev_span);
                 let else_ifs = self.arena.alloc_slice_fill_iter(else_ifs);
-                let cond = Conditional { r#if, else_ifs, else_body };
-                return Ok(Expr::Conditional(self.arena.alloc(cond)));
+                let cond = Conditional { span, r#if, else_ifs, else_body };
+                return Ok(Expr { span, kind: ExprKind::Conditional(self.arena.alloc(cond)) });
             }
         }
     }
@@ -776,7 +829,8 @@ impl<'src, 'ast> Parser<'src, 'ast> {
             self.parse_cond_expr()
         } else if self.check_noexpect(Token::LeftCurly) {
             let block = self.parse_block()?;
-            Ok(Expr::Block(block))
+            let span = block.span;
+            Ok(Expr { span, kind: ExprKind::Block(block) })
         } else {
             self.parse_expr_no_block()
         }
@@ -785,12 +839,14 @@ impl<'src, 'ast> Parser<'src, 'ast> {
     pub fn parse_expr_no_block(&mut self) -> Result<Expr<'ast>, ParseError> {
         if self.check_noexpect(Token::Fn) || self.check_noexpect(Token::Struct) {
             let type_def = self.parse_type_def()?;
-            Ok(Expr::TypeDef(type_def))
+            let span = type_def.span();
+            Ok(Expr { span, kind: ExprKind::TypeDef(type_def) })
         } else if self.check_noexpect(Token::Identifier)
             && self.peek_token() == Some(Token::LeftCurly)
         {
             let struct_lit = self.parse_struct_literal()?;
-            Ok(Expr::StructLiteral(self.arena.alloc(struct_lit)))
+            let span = struct_lit.span;
+            Ok(Expr { span, kind: ExprKind::StructLiteral(self.arena.alloc(struct_lit)) })
         } else if self.check_noexpect(Token::Identifier) && self.peek_token() == Some(Token::Dot) {
             self.parse_struct_literal_or_postfix()
         } else {
@@ -800,6 +856,7 @@ impl<'src, 'ast> Parser<'src, 'ast> {
 
     fn parse_struct_literal_or_postfix(&mut self) -> Result<Expr<'ast>, ParseError> {
         let first_ident = self.parse_ident()?;
+        let lo = first_ident.span;
 
         let mut path_segments = std::vec::Vec::new();
         path_segments.push(first_ident.inner);
@@ -810,17 +867,24 @@ impl<'src, 'ast> Parser<'src, 'ast> {
                 path_segments.push(segment.inner);
 
                 if self.check_noexpect(Token::LeftCurly) {
-                    let type_path = NamePath(self.arena.alloc_slice_copy(&path_segments));
+                    let path_span = lo.to(segment.span);
+                    let type_path = NamePath {
+                        span: path_span,
+                        segments: self.arena.alloc_slice_copy(&path_segments),
+                    };
 
                     let (fields, _recovered) =
                         self.parse_comma_separated(Token::LeftCurly, Token::RightCurly, |p| {
                             p.parse_field_init()
                         })?;
 
+                    let span = lo.to(self.prev_span);
                     let fields = self.arena.alloc_slice_fill_iter(fields);
-                    return Ok(Expr::StructLiteral(
-                        self.arena.alloc(StructLiteral { type_path, fields }),
-                    ));
+                    let struct_lit = StructLiteral { span, type_path, fields };
+                    return Ok(Expr {
+                        span,
+                        kind: ExprKind::StructLiteral(self.arena.alloc(struct_lit)),
+                    });
                 }
             } else {
                 self.push_expected(ExpectedToken::Ident);
@@ -828,26 +892,29 @@ impl<'src, 'ast> Parser<'src, 'ast> {
             }
         }
 
-        let mut expr = Expr::Ident(path_segments[0]);
+        let mut expr = Expr { span: first_ident.span, kind: ExprKind::Ident(path_segments[0]) };
         for &segment in &path_segments[1..] {
-            let member = Member { expr: self.arena.alloc(expr), ident: segment };
-            expr = Expr::Member(member);
+            let span = lo.to(self.prev_span);
+            let member = Member { span, expr: self.arena.alloc(expr), ident: segment };
+            expr = Expr { span, kind: ExprKind::Member(member) };
         }
 
         loop {
             if self.eat(Token::Dot) {
                 let ident = self.parse_ident()?;
-                let member = Member { expr: self.arena.alloc(expr), ident: ident.inner };
-                expr = Expr::Member(member);
+                let span = lo.to(ident.span);
+                let member = Member { span, expr: self.arena.alloc(expr), ident: ident.inner };
+                expr = Expr { span, kind: ExprKind::Member(member) };
             } else if self.check_noexpect(Token::LeftRound) {
                 let (args, _recovered) =
                     self.parse_comma_separated(Token::LeftRound, Token::RightRound, |p| {
                         p.parse_postfix_expr()
                     })?;
 
+                let span = lo.to(self.prev_span);
                 let param_exprs = self.arena.alloc_slice_fill_iter(args);
-                let call = FnCall { fn_expr: self.arena.alloc(expr), param_exprs };
-                expr = Expr::FnCall(call);
+                let call = FnCall { span, fn_expr: self.arena.alloc(expr), param_exprs };
+                expr = Expr { span, kind: ExprKind::FnCall(call) };
             } else {
                 break;
             }
@@ -927,52 +994,69 @@ impl<'src, 'ast> Parser<'src, 'ast> {
 
     pub fn parse_expr_stmt(&mut self) -> Result<Statement<'ast>, ParseError> {
         let expr = self.parse_expr_no_block()?;
+        let lo = expr.span;
         self.expect(Token::Semicolon)?;
-        Ok(Statement::Expr(expr))
+        let span = lo.to(self.prev_span);
+        Ok(Statement { span, kind: StatementKind::Expr(expr) })
     }
 
     pub fn parse_block_stmt(&mut self) -> Result<Statement<'ast>, ParseError> {
         let block = self.parse_block()?;
+        let span = block.span;
         self.eat(Token::Semicolon);
-        Ok(Statement::Block(block))
+        Ok(Statement { span, kind: StatementKind::Block(block) })
     }
 
     pub fn parse_while_stmt(&mut self) -> Result<Statement<'ast>, ParseError> {
+        let lo = self.current_span;
         let inline = self.eat(Token::Inline);
         self.expect(Token::While)?;
         let condition = self.parse_postfix_expr()?;
         let body = self.parse_block()?;
-        let while_stmt = WhileStmt { inline, condition, body };
-        Ok(Statement::While(self.arena.alloc(while_stmt)))
+        let span = lo.to(self.prev_span);
+        let while_stmt = WhileStmt { span, inline, condition, body };
+        Ok(Statement { span, kind: StatementKind::While(self.arena.alloc(while_stmt)) })
     }
 
     pub fn parse_cond_stmt(&mut self) -> Result<Statement<'ast>, ParseError> {
+        let lo = self.current_span;
         self.expect(Token::If)?;
 
         let condition = self.parse_postfix_expr()?;
         let body = self.parse_block()?;
-        let r#if = IfBranch { condition, body };
+        let if_span = lo.to(body.span);
+        let r#if = IfBranch { span: if_span, condition, body };
 
         let mut else_ifs = std::vec::Vec::new();
 
         loop {
             if !self.eat(Token::Else) {
+                let span = lo.to(self.prev_span);
                 let else_body = MaybeOr::Other(());
                 let else_ifs = self.arena.alloc_slice_fill_iter(else_ifs);
-                let cond = Conditional { r#if, else_ifs, else_body };
-                return Ok(Statement::Conditional(self.arena.alloc(cond)));
+                let cond = Conditional { span, r#if, else_ifs, else_body };
+                return Ok(Statement {
+                    span,
+                    kind: StatementKind::Conditional(self.arena.alloc(cond)),
+                });
             }
 
             if self.eat(Token::If) {
+                let else_if_lo = self.prev_span;
                 let condition = self.parse_postfix_expr()?;
                 let body = self.parse_block()?;
-                else_ifs.push(IfBranch { condition, body });
+                let else_if_span = else_if_lo.to(body.span);
+                else_ifs.push(IfBranch { span: else_if_span, condition, body });
             } else {
                 let else_block = self.parse_block()?;
                 let else_body = MaybeOr::Just(else_block);
+                let span = lo.to(self.prev_span);
                 let else_ifs = self.arena.alloc_slice_fill_iter(else_ifs);
-                let cond = Conditional { r#if, else_ifs, else_body };
-                return Ok(Statement::Conditional(self.arena.alloc(cond)));
+                let cond = Conditional { span, r#if, else_ifs, else_body };
+                return Ok(Statement {
+                    span,
+                    kind: StatementKind::Conditional(self.arena.alloc(cond)),
+                });
             }
         }
     }
@@ -1235,8 +1319,8 @@ mod tests {
         let mut parser = Parser::new("foo", &arena);
 
         let result = parser.parse_name_path().unwrap();
-        assert_eq!(result.0.len(), 1);
-        assert_eq!(parser.interner.resolve(result.0[0]), "foo");
+        assert_eq!(result.segments.len(), 1);
+        assert_eq!(parser.interner.resolve(result.segments[0]), "foo");
         assert!(parser.at_eof());
     }
 
@@ -1246,9 +1330,9 @@ mod tests {
         let mut parser = Parser::new("foo.bar", &arena);
 
         let result = parser.parse_name_path().unwrap();
-        assert_eq!(result.0.len(), 2);
-        assert_eq!(parser.interner.resolve(result.0[0]), "foo");
-        assert_eq!(parser.interner.resolve(result.0[1]), "bar");
+        assert_eq!(result.segments.len(), 2);
+        assert_eq!(parser.interner.resolve(result.segments[0]), "foo");
+        assert_eq!(parser.interner.resolve(result.segments[1]), "bar");
         assert!(parser.at_eof());
     }
 
@@ -1258,10 +1342,10 @@ mod tests {
         let mut parser = Parser::new("foo.bar.baz", &arena);
 
         let result = parser.parse_name_path().unwrap();
-        assert_eq!(result.0.len(), 3);
-        assert_eq!(parser.interner.resolve(result.0[0]), "foo");
-        assert_eq!(parser.interner.resolve(result.0[1]), "bar");
-        assert_eq!(parser.interner.resolve(result.0[2]), "baz");
+        assert_eq!(result.segments.len(), 3);
+        assert_eq!(parser.interner.resolve(result.segments[0]), "foo");
+        assert_eq!(parser.interner.resolve(result.segments[1]), "bar");
+        assert_eq!(parser.interner.resolve(result.segments[2]), "baz");
         assert!(parser.at_eof());
     }
 
@@ -1271,9 +1355,9 @@ mod tests {
         let mut parser = Parser::new("foo.bar + baz", &arena);
 
         let result = parser.parse_name_path().unwrap();
-        assert_eq!(result.0.len(), 2);
-        assert_eq!(parser.interner.resolve(result.0[0]), "foo");
-        assert_eq!(parser.interner.resolve(result.0[1]), "bar");
+        assert_eq!(result.segments.len(), 2);
+        assert_eq!(parser.interner.resolve(result.segments[0]), "foo");
+        assert_eq!(parser.interner.resolve(result.segments[1]), "bar");
         assert_eq!(parser.token, Some(Token::Plus));
     }
 
@@ -1303,8 +1387,8 @@ mod tests {
         let mut parser = Parser::new("foo", &arena);
 
         let result = parser.parse_primary_expr().unwrap();
-        assert!(matches!(result, Expr::Ident(_)));
-        if let Expr::Ident(istr) = result {
+        assert!(matches!(result.kind, ExprKind::Ident(_)));
+        if let ExprKind::Ident(istr) = result.kind {
             assert_eq!(parser.interner.resolve(istr), "foo");
         }
         assert!(parser.at_eof());
@@ -1316,7 +1400,7 @@ mod tests {
         let mut parser = Parser::new("true", &arena);
 
         let result = parser.parse_primary_expr().unwrap();
-        assert!(matches!(result, Expr::BoolLiteral(true)));
+        assert!(matches!(result.kind, ExprKind::BoolLiteral(true)));
         assert!(parser.at_eof());
     }
 
@@ -1326,7 +1410,7 @@ mod tests {
         let mut parser = Parser::new("false", &arena);
 
         let result = parser.parse_primary_expr().unwrap();
-        assert!(matches!(result, Expr::BoolLiteral(false)));
+        assert!(matches!(result.kind, ExprKind::BoolLiteral(false)));
         assert!(parser.at_eof());
     }
 
@@ -1336,8 +1420,8 @@ mod tests {
         let mut parser = Parser::new("42", &arena);
 
         let result = parser.parse_primary_expr().unwrap();
-        assert!(matches!(result, Expr::IntLiteral(_)));
-        if let Expr::IntLiteral(lit) = result {
+        assert!(matches!(result.kind, ExprKind::IntLiteral(_)));
+        if let ExprKind::IntLiteral(lit) = result.kind {
             assert!(lit.positive);
             assert_eq!(format!("{:x}", lit.num), "2a");
         }
@@ -1350,8 +1434,8 @@ mod tests {
         let mut parser = Parser::new("0xDEAD", &arena);
 
         let result = parser.parse_primary_expr().unwrap();
-        assert!(matches!(result, Expr::IntLiteral(_)));
-        if let Expr::IntLiteral(lit) = result {
+        assert!(matches!(result.kind, ExprKind::IntLiteral(_)));
+        if let ExprKind::IntLiteral(lit) = result.kind {
             assert!(lit.positive);
             assert_eq!(format!("{:x}", lit.num), "dead");
         }
@@ -1364,8 +1448,8 @@ mod tests {
         let mut parser = Parser::new("0b1010", &arena);
 
         let result = parser.parse_primary_expr().unwrap();
-        assert!(matches!(result, Expr::IntLiteral(_)));
-        if let Expr::IntLiteral(lit) = result {
+        assert!(matches!(result.kind, ExprKind::IntLiteral(_)));
+        if let ExprKind::IntLiteral(lit) = result.kind {
             assert!(lit.positive);
             assert_eq!(format!("{:x}", lit.num), "a");
         }
@@ -1378,8 +1462,8 @@ mod tests {
         let mut parser = Parser::new("-123", &arena);
 
         let result = parser.parse_primary_expr().unwrap();
-        assert!(matches!(result, Expr::IntLiteral(_)));
-        if let Expr::IntLiteral(lit) = result {
+        assert!(matches!(result.kind, ExprKind::IntLiteral(_)));
+        if let ExprKind::IntLiteral(lit) = result.kind {
             assert!(!lit.positive);
             assert_eq!(format!("{:x}", lit.num), "7b");
         }
@@ -1412,9 +1496,9 @@ mod tests {
         let mut parser = Parser::new("foo.bar", &arena);
 
         let result = parser.parse_postfix_expr().unwrap();
-        assert!(matches!(result, Expr::Member(_)));
-        if let Expr::Member(member) = result {
-            assert!(matches!(*member.expr, Expr::Ident(_)));
+        assert!(matches!(result.kind, ExprKind::Member(_)));
+        if let ExprKind::Member(member) = result.kind {
+            assert!(matches!(member.expr.kind, ExprKind::Ident(_)));
             assert_eq!(parser.interner.resolve(member.ident), "bar");
         }
         assert!(parser.at_eof());
@@ -1426,14 +1510,13 @@ mod tests {
         let mut parser = Parser::new("a.b.c", &arena);
 
         let result = parser.parse_postfix_expr().unwrap();
-        // Should be ((a.b).c)
-        assert!(matches!(result, Expr::Member(_)));
-        if let Expr::Member(outer) = result {
+        assert!(matches!(result.kind, ExprKind::Member(_)));
+        if let ExprKind::Member(outer) = result.kind {
             assert_eq!(parser.interner.resolve(outer.ident), "c");
-            assert!(matches!(*outer.expr, Expr::Member(_)));
-            if let Expr::Member(ref inner) = *outer.expr {
+            assert!(matches!(outer.expr.kind, ExprKind::Member(_)));
+            if let ExprKind::Member(ref inner) = outer.expr.kind {
                 assert_eq!(parser.interner.resolve(inner.ident), "b");
-                assert!(matches!(*inner.expr, Expr::Ident(_)));
+                assert!(matches!(inner.expr.kind, ExprKind::Ident(_)));
             }
         }
         assert!(parser.at_eof());
@@ -1445,7 +1528,7 @@ mod tests {
         let mut parser = Parser::new("foo", &arena);
 
         let result = parser.parse_postfix_expr().unwrap();
-        assert!(matches!(result, Expr::Ident(_)));
+        assert!(matches!(result.kind, ExprKind::Ident(_)));
         assert!(parser.at_eof());
     }
 
@@ -1455,7 +1538,7 @@ mod tests {
         let mut parser = Parser::new("foo.bar + baz", &arena);
 
         let result = parser.parse_postfix_expr().unwrap();
-        assert!(matches!(result, Expr::Member(_)));
+        assert!(matches!(result.kind, ExprKind::Member(_)));
         assert_eq!(parser.token, Some(Token::Plus));
     }
 
@@ -1465,9 +1548,9 @@ mod tests {
         let mut parser = Parser::new("foo()", &arena);
 
         let result = parser.parse_postfix_expr().unwrap();
-        assert!(matches!(result, Expr::FnCall(_)));
-        if let Expr::FnCall(call) = result {
-            assert!(matches!(*call.fn_expr, Expr::Ident(_)));
+        assert!(matches!(result.kind, ExprKind::FnCall(_)));
+        if let ExprKind::FnCall(call) = result.kind {
+            assert!(matches!(call.fn_expr.kind, ExprKind::Ident(_)));
             assert_eq!(call.param_exprs.len(), 0);
         }
         assert!(parser.at_eof());
@@ -1479,10 +1562,10 @@ mod tests {
         let mut parser = Parser::new("foo(42)", &arena);
 
         let result = parser.parse_postfix_expr().unwrap();
-        assert!(matches!(result, Expr::FnCall(_)));
-        if let Expr::FnCall(call) = result {
+        assert!(matches!(result.kind, ExprKind::FnCall(_)));
+        if let ExprKind::FnCall(call) = result.kind {
             assert_eq!(call.param_exprs.len(), 1);
-            assert!(matches!(call.param_exprs[0], Expr::IntLiteral(_)));
+            assert!(matches!(call.param_exprs[0].kind, ExprKind::IntLiteral(_)));
         }
         assert!(parser.at_eof());
     }
@@ -1493,12 +1576,12 @@ mod tests {
         let mut parser = Parser::new("foo(a, b, c)", &arena);
 
         let result = parser.parse_postfix_expr().unwrap();
-        assert!(matches!(result, Expr::FnCall(_)));
-        if let Expr::FnCall(call) = result {
+        assert!(matches!(result.kind, ExprKind::FnCall(_)));
+        if let ExprKind::FnCall(call) = result.kind {
             assert_eq!(call.param_exprs.len(), 3);
-            assert!(matches!(call.param_exprs[0], Expr::Ident(_)));
-            assert!(matches!(call.param_exprs[1], Expr::Ident(_)));
-            assert!(matches!(call.param_exprs[2], Expr::Ident(_)));
+            assert!(matches!(call.param_exprs[0].kind, ExprKind::Ident(_)));
+            assert!(matches!(call.param_exprs[1].kind, ExprKind::Ident(_)));
+            assert!(matches!(call.param_exprs[2].kind, ExprKind::Ident(_)));
         }
         assert!(parser.at_eof());
     }
@@ -1509,8 +1592,8 @@ mod tests {
         let mut parser = Parser::new("foo(a, b,)", &arena);
 
         let result = parser.parse_postfix_expr().unwrap();
-        assert!(matches!(result, Expr::FnCall(_)));
-        if let Expr::FnCall(call) = result {
+        assert!(matches!(result.kind, ExprKind::FnCall(_)));
+        if let ExprKind::FnCall(call) = result.kind {
             assert_eq!(call.param_exprs.len(), 2);
         }
         assert!(parser.at_eof());
@@ -1522,14 +1605,13 @@ mod tests {
         let mut parser = Parser::new("foo()()", &arena);
 
         let result = parser.parse_postfix_expr().unwrap();
-        // Should be ((foo())())
-        assert!(matches!(result, Expr::FnCall(_)));
-        if let Expr::FnCall(outer) = result {
+        assert!(matches!(result.kind, ExprKind::FnCall(_)));
+        if let ExprKind::FnCall(outer) = result.kind {
             assert_eq!(outer.param_exprs.len(), 0);
-            assert!(matches!(*outer.fn_expr, Expr::FnCall(_)));
-            if let Expr::FnCall(ref inner) = *outer.fn_expr {
+            assert!(matches!(outer.fn_expr.kind, ExprKind::FnCall(_)));
+            if let ExprKind::FnCall(ref inner) = outer.fn_expr.kind {
                 assert_eq!(inner.param_exprs.len(), 0);
-                assert!(matches!(*inner.fn_expr, Expr::Ident(_)));
+                assert!(matches!(inner.fn_expr.kind, ExprKind::Ident(_)));
             }
         }
         assert!(parser.at_eof());
@@ -1541,11 +1623,10 @@ mod tests {
         let mut parser = Parser::new("foo.bar()", &arena);
 
         let result = parser.parse_postfix_expr().unwrap();
-        // Should be ((foo.bar)())
-        assert!(matches!(result, Expr::FnCall(_)));
-        if let Expr::FnCall(call) = result {
+        assert!(matches!(result.kind, ExprKind::FnCall(_)));
+        if let ExprKind::FnCall(call) = result.kind {
             assert_eq!(call.param_exprs.len(), 0);
-            assert!(matches!(*call.fn_expr, Expr::Member(_)));
+            assert!(matches!(call.fn_expr.kind, ExprKind::Member(_)));
         }
         assert!(parser.at_eof());
     }
@@ -1556,11 +1637,10 @@ mod tests {
         let mut parser = Parser::new("foo().bar", &arena);
 
         let result = parser.parse_postfix_expr().unwrap();
-        // Should be ((foo()).bar)
-        assert!(matches!(result, Expr::Member(_)));
-        if let Expr::Member(member) = result {
+        assert!(matches!(result.kind, ExprKind::Member(_)));
+        if let ExprKind::Member(member) = result.kind {
             assert_eq!(parser.interner.resolve(member.ident), "bar");
-            assert!(matches!(*member.expr, Expr::FnCall(_)));
+            assert!(matches!(member.expr.kind, ExprKind::FnCall(_)));
         }
         assert!(parser.at_eof());
     }
@@ -1571,9 +1651,8 @@ mod tests {
         let mut parser = Parser::new("a.b(c).d(e, f).g", &arena);
 
         let result = parser.parse_postfix_expr().unwrap();
-        // Should be ((((a.b)(c)).d)(e, f)).g
-        assert!(matches!(result, Expr::Member(_)));
-        if let Expr::Member(member) = result {
+        assert!(matches!(result.kind, ExprKind::Member(_)));
+        if let ExprKind::Member(member) = result.kind {
             assert_eq!(parser.interner.resolve(member.ident), "g");
         }
         assert!(parser.at_eof());
@@ -1597,7 +1676,7 @@ mod tests {
         let result = parser.parse_struct_def().unwrap();
         assert_eq!(result.fields.len(), 1);
         assert_eq!(parser.interner.resolve(result.fields[0].name), "x");
-        assert!(matches!(result.fields[0].r#type, Expr::Ident(_)));
+        assert!(matches!(result.fields[0].r#type.kind, ExprKind::Ident(_)));
         assert!(parser.at_eof());
     }
 
@@ -1663,10 +1742,12 @@ mod tests {
         let result = parser.parse_block().unwrap();
         assert_eq!(result.statements.len(), 0);
         assert!(result.last_expr.is_some());
-        if let Some(Expr::Ident(istr)) = result.last_expr.as_deref() {
-            assert_eq!(parser.interner.resolve(*istr), "foo");
-        } else {
-            panic!("expected Ident expression");
+        if let Some(expr) = result.last_expr.as_deref() {
+            if let ExprKind::Ident(istr) = expr.kind {
+                assert_eq!(parser.interner.resolve(istr), "foo");
+            } else {
+                panic!("expected Ident expression");
+            }
         }
         assert!(parser.at_eof());
     }
@@ -1679,7 +1760,7 @@ mod tests {
         let result = parser.parse_block().unwrap();
         assert_eq!(result.statements.len(), 1);
         assert!(result.last_expr.is_none());
-        assert!(matches!(result.statements[0], Statement::Expr(_)));
+        assert!(matches!(result.statements[0].kind, StatementKind::Expr(_)));
         assert!(parser.at_eof());
     }
 
@@ -1691,10 +1772,12 @@ mod tests {
         let result = parser.parse_block().unwrap();
         assert_eq!(result.statements.len(), 1);
         assert!(result.last_expr.is_some());
-        if let Some(Expr::Ident(istr)) = result.last_expr.as_deref() {
-            assert_eq!(parser.interner.resolve(*istr), "bar");
-        } else {
-            panic!("expected Ident expression");
+        if let Some(expr) = result.last_expr.as_deref() {
+            if let ExprKind::Ident(istr) = expr.kind {
+                assert_eq!(parser.interner.resolve(istr), "bar");
+            } else {
+                panic!("expected Ident expression");
+            }
         }
         assert!(parser.at_eof());
     }
@@ -1731,7 +1814,7 @@ mod tests {
         assert_eq!(result.params.len(), 1);
         assert!(!result.params[0].comptime);
         assert_eq!(parser.interner.resolve(result.params[0].name), "x");
-        assert!(matches!(result.params[0].r#type, Expr::Ident(_)));
+        assert!(matches!(result.params[0].r#type.kind, ExprKind::Ident(_)));
         assert!(result.result.is_none());
         assert!(parser.at_eof());
     }
@@ -1768,10 +1851,12 @@ mod tests {
 
         let result = parser.parse_fn_def().unwrap();
         assert!(result.result.is_some());
-        if let Some(Expr::Ident(istr)) = result.result {
-            assert_eq!(parser.interner.resolve(istr), "u32");
-        } else {
-            panic!("expected Ident as return type");
+        if let Some(expr) = result.result {
+            if let ExprKind::Ident(istr) = expr.kind {
+                assert_eq!(parser.interner.resolve(istr), "u32");
+            } else {
+                panic!("expected Ident as return type");
+            }
         }
         assert!(parser.at_eof());
     }
@@ -1852,8 +1937,8 @@ mod tests {
         let mut parser = Parser::new("comptime {}", &arena);
 
         let result = parser.parse_comptime_block().unwrap();
-        assert!(matches!(result, Expr::Comptime(_)));
-        if let Expr::Comptime(block) = result {
+        assert!(matches!(result.kind, ExprKind::Comptime(_)));
+        if let ExprKind::Comptime(block) = result.kind {
             assert_eq!(block.statements.len(), 0);
             assert!(block.last_expr.is_none());
         }
@@ -1866,8 +1951,8 @@ mod tests {
         let mut parser = Parser::new("comptime { foo }", &arena);
 
         let result = parser.parse_comptime_block().unwrap();
-        assert!(matches!(result, Expr::Comptime(_)));
-        if let Expr::Comptime(block) = result {
+        assert!(matches!(result.kind, ExprKind::Comptime(_)));
+        if let ExprKind::Comptime(block) = result.kind {
             assert_eq!(block.statements.len(), 0);
             assert!(block.last_expr.is_some());
         }
@@ -1880,8 +1965,8 @@ mod tests {
         let mut parser = Parser::new("comptime { foo; }", &arena);
 
         let result = parser.parse_comptime_block().unwrap();
-        assert!(matches!(result, Expr::Comptime(_)));
-        if let Expr::Comptime(block) = result {
+        assert!(matches!(result.kind, ExprKind::Comptime(_)));
+        if let ExprKind::Comptime(block) = result.kind {
             assert_eq!(block.statements.len(), 1);
             assert!(block.last_expr.is_none());
         }
@@ -1904,8 +1989,8 @@ mod tests {
         let mut parser = Parser::new("MyStruct {}", &arena);
 
         let result = parser.parse_struct_literal().unwrap();
-        assert_eq!(result.type_path.0.len(), 1);
-        assert_eq!(parser.interner.resolve(result.type_path.0[0]), "MyStruct");
+        assert_eq!(result.type_path.segments.len(), 1);
+        assert_eq!(parser.interner.resolve(result.type_path.segments[0]), "MyStruct");
         assert_eq!(result.fields.len(), 0);
         assert!(parser.at_eof());
     }
@@ -1916,11 +2001,11 @@ mod tests {
         let mut parser = Parser::new("Point { x: 42 }", &arena);
 
         let result = parser.parse_struct_literal().unwrap();
-        assert_eq!(result.type_path.0.len(), 1);
-        assert_eq!(parser.interner.resolve(result.type_path.0[0]), "Point");
+        assert_eq!(result.type_path.segments.len(), 1);
+        assert_eq!(parser.interner.resolve(result.type_path.segments[0]), "Point");
         assert_eq!(result.fields.len(), 1);
         assert_eq!(parser.interner.resolve(result.fields[0].name), "x");
-        assert!(matches!(result.fields[0].value, Expr::IntLiteral(_)));
+        assert!(matches!(result.fields[0].value.kind, ExprKind::IntLiteral(_)));
         assert!(parser.at_eof());
     }
 
@@ -1930,7 +2015,7 @@ mod tests {
         let mut parser = Parser::new("Point { x: 1, y: 2, z: 3 }", &arena);
 
         let result = parser.parse_struct_literal().unwrap();
-        assert_eq!(result.type_path.0.len(), 1);
+        assert_eq!(result.type_path.segments.len(), 1);
         assert_eq!(result.fields.len(), 3);
         assert_eq!(parser.interner.resolve(result.fields[0].name), "x");
         assert_eq!(parser.interner.resolve(result.fields[1].name), "y");
@@ -1954,10 +2039,10 @@ mod tests {
         let mut parser = Parser::new("math.geometry.Point { x: 1 }", &arena);
 
         let result = parser.parse_struct_literal().unwrap();
-        assert_eq!(result.type_path.0.len(), 3);
-        assert_eq!(parser.interner.resolve(result.type_path.0[0]), "math");
-        assert_eq!(parser.interner.resolve(result.type_path.0[1]), "geometry");
-        assert_eq!(parser.interner.resolve(result.type_path.0[2]), "Point");
+        assert_eq!(result.type_path.segments.len(), 3);
+        assert_eq!(parser.interner.resolve(result.type_path.segments[0]), "math");
+        assert_eq!(parser.interner.resolve(result.type_path.segments[1]), "geometry");
+        assert_eq!(parser.interner.resolve(result.type_path.segments[2]), "Point");
         assert_eq!(result.fields.len(), 1);
         assert!(parser.at_eof());
     }
@@ -1970,7 +2055,7 @@ mod tests {
         let result = parser.parse_struct_literal().unwrap();
         assert_eq!(result.fields.len(), 1);
         assert_eq!(parser.interner.resolve(result.fields[0].name), "value");
-        if let Expr::Ident(istr) = result.fields[0].value {
+        if let ExprKind::Ident(istr) = result.fields[0].value.kind {
             assert_eq!(parser.interner.resolve(istr), "foo");
         } else {
             panic!("expected Ident expression");
@@ -1984,9 +2069,9 @@ mod tests {
         let mut parser = Parser::new("if true { 1 } else { 2 }", &arena);
 
         let result = parser.parse_cond_expr().unwrap();
-        assert!(matches!(result, Expr::Conditional(_)));
-        if let Expr::Conditional(cond) = result {
-            assert!(matches!(cond.r#if.condition, Expr::BoolLiteral(true)));
+        assert!(matches!(result.kind, ExprKind::Conditional(_)));
+        if let ExprKind::Conditional(cond) = result.kind {
+            assert!(matches!(cond.r#if.condition.kind, ExprKind::BoolLiteral(true)));
             assert!(cond.r#if.body.last_expr.is_some());
             assert_eq!(cond.else_ifs.len(), 0);
             assert!(matches!(cond.else_body, MaybeOr::Just(_)));
@@ -2001,7 +2086,7 @@ mod tests {
         let mut parser = Parser::new("if a { 1 } else if b { 2 } else { 3 }", &arena);
 
         let result = parser.parse_cond_expr().unwrap();
-        if let Expr::Conditional(cond) = result {
+        if let ExprKind::Conditional(cond) = result.kind {
             assert_eq!(cond.else_ifs.len(), 1);
             assert!(matches!(cond.else_body, MaybeOr::Just(_)));
         } else {
@@ -2018,7 +2103,7 @@ mod tests {
             Parser::new("if a { 1 } else if b { 2 } else if c { 3 } else { 4 }", &arena);
 
         let result = parser.parse_cond_expr().unwrap();
-        if let Expr::Conditional(cond) = result {
+        if let ExprKind::Conditional(cond) = result.kind {
             assert_eq!(cond.else_ifs.len(), 2);
             assert!(matches!(cond.else_body, MaybeOr::Just(_)));
         } else {
@@ -2034,7 +2119,7 @@ mod tests {
         let mut parser = Parser::new("if true { 1 }", &arena);
 
         let result = parser.parse_cond_expr().unwrap();
-        assert!(matches!(result, Expr::Conditional(_)));
+        assert!(matches!(result.kind, ExprKind::Conditional(_)));
         assert!(parser.diagnostics.has_errors());
     }
 
@@ -2044,7 +2129,7 @@ mod tests {
         let mut parser = Parser::new("foo", &arena);
 
         let result = parser.parse_expr_no_block().unwrap();
-        assert!(matches!(result, Expr::Ident(_)));
+        assert!(matches!(result.kind, ExprKind::Ident(_)));
         assert!(parser.at_eof());
     }
 
@@ -2054,7 +2139,7 @@ mod tests {
         let mut parser = Parser::new("42", &arena);
 
         let result = parser.parse_expr_no_block().unwrap();
-        assert!(matches!(result, Expr::IntLiteral(_)));
+        assert!(matches!(result.kind, ExprKind::IntLiteral(_)));
         assert!(parser.at_eof());
     }
 
@@ -2064,7 +2149,7 @@ mod tests {
         let mut parser = Parser::new("Point { x: 1, y: 2 }", &arena);
 
         let result = parser.parse_expr_no_block().unwrap();
-        assert!(matches!(result, Expr::StructLiteral(_)));
+        assert!(matches!(result.kind, ExprKind::StructLiteral(_)));
         assert!(parser.at_eof());
     }
 
@@ -2074,7 +2159,7 @@ mod tests {
         let mut parser = Parser::new("fn (x: u32) -> u64 {}", &arena);
 
         let result = parser.parse_expr_no_block().unwrap();
-        assert!(matches!(result, Expr::TypeDef(TypeDef::FnDef(_))));
+        assert!(matches!(result.kind, ExprKind::TypeDef(TypeDef::FnDef(_))));
         assert!(parser.at_eof());
     }
 
@@ -2084,7 +2169,7 @@ mod tests {
         let mut parser = Parser::new("struct { x: u32 }", &arena);
 
         let result = parser.parse_expr_no_block().unwrap();
-        assert!(matches!(result, Expr::TypeDef(TypeDef::StructDef(_))));
+        assert!(matches!(result.kind, ExprKind::TypeDef(TypeDef::StructDef(_))));
         assert!(parser.at_eof());
     }
 
@@ -2094,7 +2179,7 @@ mod tests {
         let mut parser = Parser::new("foo.bar()", &arena);
 
         let result = parser.parse_expr_no_block().unwrap();
-        assert!(matches!(result, Expr::FnCall(_)));
+        assert!(matches!(result.kind, ExprKind::FnCall(_)));
         assert!(parser.at_eof());
     }
 
@@ -2104,7 +2189,7 @@ mod tests {
         let mut parser = Parser::new("comptime { 42 }", &arena);
 
         let result = parser.parse_expr().unwrap();
-        assert!(matches!(result, Expr::Comptime(_)));
+        assert!(matches!(result.kind, ExprKind::Comptime(_)));
         assert!(parser.at_eof());
     }
 
@@ -2114,7 +2199,7 @@ mod tests {
         let mut parser = Parser::new("{ foo }", &arena);
 
         let result = parser.parse_expr().unwrap();
-        assert!(matches!(result, Expr::Block(_)));
+        assert!(matches!(result.kind, ExprKind::Block(_)));
         assert!(parser.at_eof());
     }
 
@@ -2124,7 +2209,7 @@ mod tests {
         let mut parser = Parser::new("if true { 1 } else { 2 }", &arena);
 
         let result = parser.parse_expr().unwrap();
-        assert!(matches!(result, Expr::Conditional(_)));
+        assert!(matches!(result.kind, ExprKind::Conditional(_)));
         assert!(parser.at_eof());
         assert!(!parser.diagnostics.has_errors());
     }
@@ -2135,7 +2220,7 @@ mod tests {
         let mut parser = Parser::new("foo.bar(42)", &arena);
 
         let result = parser.parse_expr().unwrap();
-        assert!(matches!(result, Expr::FnCall(_)));
+        assert!(matches!(result.kind, ExprKind::FnCall(_)));
         assert!(parser.at_eof());
     }
 
@@ -2145,9 +2230,9 @@ mod tests {
         let mut parser = Parser::new("return 42;", &arena);
 
         let result = parser.parse_stmt().unwrap();
-        assert!(matches!(result, Statement::Return(_)));
-        if let Statement::Return(expr) = result {
-            assert!(matches!(expr, Expr::IntLiteral(_)));
+        assert!(matches!(result.kind, StatementKind::Return(_)));
+        if let StatementKind::Return(expr) = result.kind {
+            assert!(matches!(expr.kind, ExprKind::IntLiteral(_)));
         }
         assert!(parser.at_eof());
         assert!(!parser.diagnostics.has_errors());
@@ -2159,11 +2244,15 @@ mod tests {
         let mut parser = Parser::new("return foo;", &arena);
 
         let result = parser.parse_stmt().unwrap();
-        assert!(matches!(result, Statement::Return(_)));
-        if let Statement::Return(Expr::Ident(istr)) = result {
-            assert_eq!(parser.interner.resolve(istr), "foo");
+        assert!(matches!(result.kind, StatementKind::Return(_)));
+        if let StatementKind::Return(expr) = result.kind {
+            if let ExprKind::Ident(istr) = expr.kind {
+                assert_eq!(parser.interner.resolve(istr), "foo");
+            } else {
+                panic!("expected Ident");
+            }
         } else {
-            panic!("expected Return with Ident");
+            panic!("expected Return");
         }
         assert!(parser.at_eof());
         assert!(!parser.diagnostics.has_errors());
@@ -2175,9 +2264,9 @@ mod tests {
         let mut parser = Parser::new("return foo.bar();", &arena);
 
         let result = parser.parse_stmt().unwrap();
-        assert!(matches!(result, Statement::Return(_)));
-        if let Statement::Return(expr) = result {
-            assert!(matches!(expr, Expr::FnCall(_)));
+        assert!(matches!(result.kind, StatementKind::Return(_)));
+        if let StatementKind::Return(expr) = result.kind {
+            assert!(matches!(expr.kind, ExprKind::FnCall(_)));
         }
         assert!(parser.at_eof());
         assert!(!parser.diagnostics.has_errors());
@@ -2189,7 +2278,7 @@ mod tests {
         let mut parser = Parser::new("return 42", &arena);
 
         let result = parser.parse_stmt().unwrap();
-        assert!(matches!(result, Statement::Return(_)));
+        assert!(matches!(result.kind, StatementKind::Return(_)));
         assert!(parser.diagnostics.has_errors());
     }
 
@@ -2209,12 +2298,12 @@ mod tests {
         let mut parser = Parser::new("let x = 42;", &arena);
 
         let result = parser.parse_stmt().unwrap();
-        assert!(matches!(result, Statement::Let(_)));
-        if let Statement::Let(let_stmt) = result {
+        assert!(matches!(result.kind, StatementKind::Let(_)));
+        if let StatementKind::Let(let_stmt) = result.kind {
             assert!(!let_stmt.mutable);
             assert_eq!(parser.interner.resolve(let_stmt.ident), "x");
             assert!(let_stmt.r#type.is_none());
-            assert!(matches!(let_stmt.value, Expr::IntLiteral(_)));
+            assert!(matches!(let_stmt.value.kind, ExprKind::IntLiteral(_)));
         }
         assert!(parser.at_eof());
         assert!(!parser.diagnostics.has_errors());
@@ -2226,12 +2315,12 @@ mod tests {
         let mut parser = Parser::new("let mut y = foo;", &arena);
 
         let result = parser.parse_stmt().unwrap();
-        assert!(matches!(result, Statement::Let(_)));
-        if let Statement::Let(let_stmt) = result {
+        assert!(matches!(result.kind, StatementKind::Let(_)));
+        if let StatementKind::Let(let_stmt) = result.kind {
             assert!(let_stmt.mutable);
             assert_eq!(parser.interner.resolve(let_stmt.ident), "y");
             assert!(let_stmt.r#type.is_none());
-            assert!(matches!(let_stmt.value, Expr::Ident(_)));
+            assert!(matches!(let_stmt.value.kind, ExprKind::Ident(_)));
         }
         assert!(parser.at_eof());
         assert!(!parser.diagnostics.has_errors());
@@ -2243,12 +2332,12 @@ mod tests {
         let mut parser = Parser::new("let x: u32 = 42;", &arena);
 
         let result = parser.parse_stmt().unwrap();
-        assert!(matches!(result, Statement::Let(_)));
-        if let Statement::Let(let_stmt) = result {
+        assert!(matches!(result.kind, StatementKind::Let(_)));
+        if let StatementKind::Let(let_stmt) = result.kind {
             assert!(!let_stmt.mutable);
             assert_eq!(parser.interner.resolve(let_stmt.ident), "x");
             assert!(let_stmt.r#type.is_some());
-            if let Some(Expr::Ident(type_istr)) = let_stmt.r#type {
+            if let Some(Expr { kind: ExprKind::Ident(type_istr), .. }) = let_stmt.r#type {
                 assert_eq!(parser.interner.resolve(type_istr), "u32");
             } else {
                 panic!("expected Ident as type");
@@ -2264,8 +2353,8 @@ mod tests {
         let mut parser = Parser::new("let mut count: u64 = 0;", &arena);
 
         let result = parser.parse_stmt().unwrap();
-        assert!(matches!(result, Statement::Let(_)));
-        if let Statement::Let(let_stmt) = result {
+        assert!(matches!(result.kind, StatementKind::Let(_)));
+        if let StatementKind::Let(let_stmt) = result.kind {
             assert!(let_stmt.mutable);
             assert_eq!(parser.interner.resolve(let_stmt.ident), "count");
             assert!(let_stmt.r#type.is_some());
@@ -2280,12 +2369,12 @@ mod tests {
         let mut parser = Parser::new("x = 42;", &arena);
 
         let result = parser.parse_stmt().unwrap();
-        assert!(matches!(result, Statement::Assign(_)));
-        if let Statement::Assign(assign) = result {
-            assert_eq!(assign.target.0.len(), 1);
-            assert_eq!(parser.interner.resolve(assign.target.0[0]), "x");
+        assert!(matches!(result.kind, StatementKind::Assign(_)));
+        if let StatementKind::Assign(assign) = result.kind {
+            assert_eq!(assign.target.segments.len(), 1);
+            assert_eq!(parser.interner.resolve(assign.target.segments[0]), "x");
             assert!(matches!(assign.op, AssignOp::Assign));
-            assert!(matches!(assign.value, Expr::IntLiteral(_)));
+            assert!(matches!(assign.value.kind, ExprKind::IntLiteral(_)));
         }
         assert!(parser.at_eof());
         assert!(!parser.diagnostics.has_errors());
@@ -2297,13 +2386,13 @@ mod tests {
         let mut parser = Parser::new("foo.bar.baz = true;", &arena);
 
         let result = parser.parse_stmt().unwrap();
-        assert!(matches!(result, Statement::Assign(_)));
-        if let Statement::Assign(assign) = result {
-            assert_eq!(assign.target.0.len(), 3);
-            assert_eq!(parser.interner.resolve(assign.target.0[0]), "foo");
-            assert_eq!(parser.interner.resolve(assign.target.0[1]), "bar");
-            assert_eq!(parser.interner.resolve(assign.target.0[2]), "baz");
-            assert!(matches!(assign.value, Expr::BoolLiteral(true)));
+        assert!(matches!(result.kind, StatementKind::Assign(_)));
+        if let StatementKind::Assign(assign) = result.kind {
+            assert_eq!(assign.target.segments.len(), 3);
+            assert_eq!(parser.interner.resolve(assign.target.segments[0]), "foo");
+            assert_eq!(parser.interner.resolve(assign.target.segments[1]), "bar");
+            assert_eq!(parser.interner.resolve(assign.target.segments[2]), "baz");
+            assert!(matches!(assign.value.kind, ExprKind::BoolLiteral(true)));
         }
         assert!(parser.at_eof());
         assert!(!parser.diagnostics.has_errors());
@@ -2315,10 +2404,10 @@ mod tests {
         let mut parser = Parser::new("target = foo.bar();", &arena);
 
         let result = parser.parse_stmt().unwrap();
-        assert!(matches!(result, Statement::Assign(_)));
-        if let Statement::Assign(assign) = result {
-            assert_eq!(assign.target.0.len(), 1);
-            assert!(matches!(assign.value, Expr::FnCall(_)));
+        assert!(matches!(result.kind, StatementKind::Assign(_)));
+        if let StatementKind::Assign(assign) = result.kind {
+            assert_eq!(assign.target.segments.len(), 1);
+            assert!(matches!(assign.value.kind, ExprKind::FnCall(_)));
         }
         assert!(parser.at_eof());
         assert!(!parser.diagnostics.has_errors());
@@ -2330,7 +2419,7 @@ mod tests {
         let mut parser = Parser::new("x = 42", &arena);
 
         let result = parser.parse_stmt().unwrap();
-        assert!(matches!(result, Statement::Assign(_)));
+        assert!(matches!(result.kind, StatementKind::Assign(_)));
         assert!(parser.diagnostics.has_errors());
     }
 
@@ -2340,8 +2429,8 @@ mod tests {
         let mut parser = Parser::new("{}", &arena);
 
         let result = parser.parse_stmt().unwrap();
-        assert!(matches!(result, Statement::Block(_)));
-        if let Statement::Block(block) = result {
+        assert!(matches!(result.kind, StatementKind::Block(_)));
+        if let StatementKind::Block(block) = result.kind {
             assert_eq!(block.statements.len(), 0);
             assert!(block.last_expr.is_none());
         }
@@ -2355,8 +2444,8 @@ mod tests {
         let mut parser = Parser::new("{ foo }", &arena);
 
         let result = parser.parse_stmt().unwrap();
-        assert!(matches!(result, Statement::Block(_)));
-        if let Statement::Block(block) = result {
+        assert!(matches!(result.kind, StatementKind::Block(_)));
+        if let StatementKind::Block(block) = result.kind {
             assert_eq!(block.statements.len(), 0);
             assert!(block.last_expr.is_some());
         }
@@ -2370,7 +2459,7 @@ mod tests {
         let mut parser = Parser::new("{}; foo", &arena);
 
         let result = parser.parse_stmt().unwrap();
-        assert!(matches!(result, Statement::Block(_)));
+        assert!(matches!(result.kind, StatementKind::Block(_)));
         assert_eq!(parser.token, Some(Token::Identifier));
         assert!(!parser.diagnostics.has_errors());
     }
@@ -2381,7 +2470,7 @@ mod tests {
         let mut parser = Parser::new("{} foo", &arena);
 
         let result = parser.parse_stmt().unwrap();
-        assert!(matches!(result, Statement::Block(_)));
+        assert!(matches!(result.kind, StatementKind::Block(_)));
         assert_eq!(parser.token, Some(Token::Identifier));
         assert!(!parser.diagnostics.has_errors());
     }
@@ -2392,10 +2481,10 @@ mod tests {
         let mut parser = Parser::new("while true {}", &arena);
 
         let result = parser.parse_stmt().unwrap();
-        assert!(matches!(result, Statement::While(_)));
-        if let Statement::While(while_stmt) = result {
+        assert!(matches!(result.kind, StatementKind::While(_)));
+        if let StatementKind::While(while_stmt) = result.kind {
             assert!(!while_stmt.inline);
-            assert!(matches!(while_stmt.condition, Expr::BoolLiteral(true)));
+            assert!(matches!(while_stmt.condition.kind, ExprKind::BoolLiteral(true)));
             assert_eq!(while_stmt.body.statements.len(), 0);
             assert!(while_stmt.body.last_expr.is_none());
         }
@@ -2409,10 +2498,10 @@ mod tests {
         let mut parser = Parser::new("inline while cond { foo; }", &arena);
 
         let result = parser.parse_stmt().unwrap();
-        assert!(matches!(result, Statement::While(_)));
-        if let Statement::While(while_stmt) = result {
+        assert!(matches!(result.kind, StatementKind::While(_)));
+        if let StatementKind::While(while_stmt) = result.kind {
             assert!(while_stmt.inline);
-            assert!(matches!(while_stmt.condition, Expr::Ident(_)));
+            assert!(matches!(while_stmt.condition.kind, ExprKind::Ident(_)));
             assert_eq!(while_stmt.body.statements.len(), 1);
         }
         assert!(parser.at_eof());
@@ -2425,8 +2514,8 @@ mod tests {
         let mut parser = Parser::new("while x { let y = 1; return y; }", &arena);
 
         let result = parser.parse_stmt().unwrap();
-        assert!(matches!(result, Statement::While(_)));
-        if let Statement::While(while_stmt) = result {
+        assert!(matches!(result.kind, StatementKind::While(_)));
+        if let StatementKind::While(while_stmt) = result.kind {
             assert!(!while_stmt.inline);
             assert_eq!(while_stmt.body.statements.len(), 2);
         }
@@ -2440,9 +2529,9 @@ mod tests {
         let mut parser = Parser::new("while foo.bar() {}", &arena);
 
         let result = parser.parse_stmt().unwrap();
-        assert!(matches!(result, Statement::While(_)));
-        if let Statement::While(while_stmt) = result {
-            assert!(matches!(while_stmt.condition, Expr::FnCall(_)));
+        assert!(matches!(result.kind, StatementKind::While(_)));
+        if let StatementKind::While(while_stmt) = result.kind {
+            assert!(matches!(while_stmt.condition.kind, ExprKind::FnCall(_)));
         }
         assert!(parser.at_eof());
         assert!(!parser.diagnostics.has_errors());
@@ -2454,7 +2543,11 @@ mod tests {
         let mut parser = Parser::new("true;", &arena);
 
         let result = parser.parse_stmt().unwrap();
-        assert!(matches!(result, Statement::Expr(Expr::BoolLiteral(true))));
+        if let StatementKind::Expr(expr) = result.kind {
+            assert!(matches!(expr.kind, ExprKind::BoolLiteral(true)));
+        } else {
+            panic!("expected Expr statement");
+        }
         assert!(parser.at_eof());
         assert!(!parser.diagnostics.has_errors());
     }
@@ -2465,7 +2558,11 @@ mod tests {
         let mut parser = Parser::new("42;", &arena);
 
         let result = parser.parse_stmt().unwrap();
-        assert!(matches!(result, Statement::Expr(Expr::IntLiteral(_))));
+        if let StatementKind::Expr(expr) = result.kind {
+            assert!(matches!(expr.kind, ExprKind::IntLiteral(_)));
+        } else {
+            panic!("expected Expr statement");
+        }
         assert!(parser.at_eof());
         assert!(!parser.diagnostics.has_errors());
     }
@@ -2476,7 +2573,11 @@ mod tests {
         let mut parser = Parser::new("foo();", &arena);
 
         let result = parser.parse_stmt().unwrap();
-        assert!(matches!(result, Statement::Expr(Expr::FnCall(_))));
+        if let StatementKind::Expr(expr) = result.kind {
+            assert!(matches!(expr.kind, ExprKind::FnCall(_)));
+        } else {
+            panic!("expected Expr statement");
+        }
         assert!(parser.at_eof());
         assert!(!parser.diagnostics.has_errors());
     }
@@ -2497,9 +2598,9 @@ mod tests {
         let mut parser = Parser::new("if true {}", &arena);
 
         let result = parser.parse_stmt().unwrap();
-        assert!(matches!(result, Statement::Conditional(_)));
-        if let Statement::Conditional(cond) = result {
-            assert!(matches!(cond.r#if.condition, Expr::BoolLiteral(true)));
+        assert!(matches!(result.kind, StatementKind::Conditional(_)));
+        if let StatementKind::Conditional(cond) = result.kind {
+            assert!(matches!(cond.r#if.condition.kind, ExprKind::BoolLiteral(true)));
             assert_eq!(cond.r#if.body.statements.len(), 0);
             assert!(cond.r#if.body.last_expr.is_none());
             assert_eq!(cond.else_ifs.len(), 0);
@@ -2515,9 +2616,9 @@ mod tests {
         let mut parser = Parser::new("if cond { foo; } else { bar; }", &arena);
 
         let result = parser.parse_stmt().unwrap();
-        assert!(matches!(result, Statement::Conditional(_)));
-        if let Statement::Conditional(cond) = result {
-            assert!(matches!(cond.r#if.condition, Expr::Ident(_)));
+        assert!(matches!(result.kind, StatementKind::Conditional(_)));
+        if let StatementKind::Conditional(cond) = result.kind {
+            assert!(matches!(cond.r#if.condition.kind, ExprKind::Ident(_)));
             assert_eq!(cond.r#if.body.statements.len(), 1);
             assert_eq!(cond.else_ifs.len(), 0);
             assert!(matches!(cond.else_body, MaybeOr::Just(_)));
@@ -2535,9 +2636,9 @@ mod tests {
         let mut parser = Parser::new("if a {} else if b {} else if c {}", &arena);
 
         let result = parser.parse_stmt().unwrap();
-        assert!(matches!(result, Statement::Conditional(_)));
-        if let Statement::Conditional(cond) = result {
-            assert!(matches!(cond.r#if.condition, Expr::Ident(_)));
+        assert!(matches!(result.kind, StatementKind::Conditional(_)));
+        if let StatementKind::Conditional(cond) = result.kind {
+            assert!(matches!(cond.r#if.condition.kind, ExprKind::Ident(_)));
             assert_eq!(cond.else_ifs.len(), 2);
             assert!(matches!(cond.else_body, MaybeOr::Other(())));
         }
@@ -2551,8 +2652,8 @@ mod tests {
         let mut parser = Parser::new("if a { x; } else if b { y; } else { z; }", &arena);
 
         let result = parser.parse_stmt().unwrap();
-        assert!(matches!(result, Statement::Conditional(_)));
-        if let Statement::Conditional(cond) = result {
+        assert!(matches!(result.kind, StatementKind::Conditional(_)));
+        if let StatementKind::Conditional(cond) = result.kind {
             assert_eq!(cond.r#if.body.statements.len(), 1);
             assert_eq!(cond.else_ifs.len(), 1);
             assert_eq!(cond.else_ifs[0].body.statements.len(), 1);
@@ -2571,8 +2672,8 @@ mod tests {
         let mut parser = Parser::new("init {}", &arena);
 
         let result = parser.parse_init_decl().unwrap();
-        assert!(matches!(result, Declaration::Init(_)));
-        if let Declaration::Init(block) = result {
+        assert!(matches!(result.kind, DeclarationKind::Init(_)));
+        if let DeclarationKind::Init(block) = result.kind {
             assert_eq!(block.statements.len(), 0);
             assert!(block.last_expr.is_none());
         }
@@ -2586,8 +2687,8 @@ mod tests {
         let mut parser = Parser::new("init { let x = 42; return x; }", &arena);
 
         let result = parser.parse_init_decl().unwrap();
-        assert!(matches!(result, Declaration::Init(_)));
-        if let Declaration::Init(block) = result {
+        assert!(matches!(result.kind, DeclarationKind::Init(_)));
+        if let DeclarationKind::Init(block) = result.kind {
             assert_eq!(block.statements.len(), 2);
             assert!(block.last_expr.is_none());
         }
@@ -2601,8 +2702,8 @@ mod tests {
         let mut parser = Parser::new("init { foo }", &arena);
 
         let result = parser.parse_init_decl().unwrap();
-        assert!(matches!(result, Declaration::Init(_)));
-        if let Declaration::Init(block) = result {
+        assert!(matches!(result.kind, DeclarationKind::Init(_)));
+        if let DeclarationKind::Init(block) = result.kind {
             assert_eq!(block.statements.len(), 0);
             assert!(block.last_expr.is_some());
         }
@@ -2616,8 +2717,8 @@ mod tests {
         let mut parser = Parser::new("init { foo", &arena);
 
         let result = parser.parse_init_decl().unwrap();
-        assert!(matches!(result, Declaration::Init(_)));
-        if let Declaration::Init(block) = result {
+        assert!(matches!(result.kind, DeclarationKind::Init(_)));
+        if let DeclarationKind::Init(block) = result.kind {
             assert!(block.last_expr.is_some());
         }
         assert!(parser.diagnostics.has_errors());
@@ -2629,8 +2730,8 @@ mod tests {
         let mut parser = Parser::new("run {}", &arena);
 
         let result = parser.parse_run_decl().unwrap();
-        assert!(matches!(result, Declaration::Run(_)));
-        if let Declaration::Run(block) = result {
+        assert!(matches!(result.kind, DeclarationKind::Run(_)));
+        if let DeclarationKind::Run(block) = result.kind {
             assert_eq!(block.statements.len(), 0);
             assert!(block.last_expr.is_none());
         }
@@ -2644,8 +2745,8 @@ mod tests {
         let mut parser = Parser::new("run { let x = 42; return x; }", &arena);
 
         let result = parser.parse_run_decl().unwrap();
-        assert!(matches!(result, Declaration::Run(_)));
-        if let Declaration::Run(block) = result {
+        assert!(matches!(result.kind, DeclarationKind::Run(_)));
+        if let DeclarationKind::Run(block) = result.kind {
             assert_eq!(block.statements.len(), 2);
             assert!(block.last_expr.is_none());
         }
@@ -2659,8 +2760,8 @@ mod tests {
         let mut parser = Parser::new("run { foo }", &arena);
 
         let result = parser.parse_run_decl().unwrap();
-        assert!(matches!(result, Declaration::Run(_)));
-        if let Declaration::Run(block) = result {
+        assert!(matches!(result.kind, DeclarationKind::Run(_)));
+        if let DeclarationKind::Run(block) = result.kind {
             assert_eq!(block.statements.len(), 0);
             assert!(block.last_expr.is_some());
         }
@@ -2674,8 +2775,8 @@ mod tests {
         let mut parser = Parser::new("run { foo", &arena);
 
         let result = parser.parse_run_decl().unwrap();
-        assert!(matches!(result, Declaration::Run(_)));
-        if let Declaration::Run(block) = result {
+        assert!(matches!(result.kind, DeclarationKind::Run(_)));
+        if let DeclarationKind::Run(block) = result.kind {
             assert!(block.last_expr.is_some());
         }
         assert!(parser.diagnostics.has_errors());
@@ -2687,8 +2788,8 @@ mod tests {
         let mut parser = Parser::new("const FOO = 42;", &arena);
 
         let result = parser.parse_const_def().unwrap();
-        assert!(matches!(result, Declaration::ConstDef(_)));
-        if let Declaration::ConstDef(const_def) = result {
+        assert!(matches!(result.kind, DeclarationKind::ConstDef(_)));
+        if let DeclarationKind::ConstDef(const_def) = result.kind {
             assert!(const_def.r#type.is_none());
         }
         assert!(parser.at_eof());
@@ -2701,8 +2802,8 @@ mod tests {
         let mut parser = Parser::new("const BAR: u256 = 100;", &arena);
 
         let result = parser.parse_const_def().unwrap();
-        assert!(matches!(result, Declaration::ConstDef(_)));
-        if let Declaration::ConstDef(const_def) = result {
+        assert!(matches!(result.kind, DeclarationKind::ConstDef(_)));
+        if let DeclarationKind::ConstDef(const_def) = result.kind {
             assert!(const_def.r#type.is_some());
         }
         assert!(parser.at_eof());
@@ -2715,8 +2816,8 @@ mod tests {
         let mut parser = Parser::new("const MAX: u256 = foo.bar(1, 2);", &arena);
 
         let result = parser.parse_const_def().unwrap();
-        assert!(matches!(result, Declaration::ConstDef(_)));
-        if let Declaration::ConstDef(const_def) = result {
+        assert!(matches!(result.kind, DeclarationKind::ConstDef(_)));
+        if let DeclarationKind::ConstDef(const_def) = result.kind {
             assert!(const_def.r#type.is_some());
         }
         assert!(parser.at_eof());
@@ -2740,7 +2841,7 @@ mod tests {
 
         let result = parser.parse_next_decl().unwrap();
         assert!(result.is_some());
-        assert!(matches!(result.unwrap(), Declaration::Init(_)));
+        assert!(matches!(result.unwrap().kind, DeclarationKind::Init(_)));
         assert!(parser.at_eof());
         assert!(!parser.diagnostics.has_errors());
     }
@@ -2752,7 +2853,7 @@ mod tests {
 
         let result = parser.parse_next_decl().unwrap();
         assert!(result.is_some());
-        assert!(matches!(result.unwrap(), Declaration::Run(_)));
+        assert!(matches!(result.unwrap().kind, DeclarationKind::Run(_)));
         assert!(parser.at_eof());
         assert!(!parser.diagnostics.has_errors());
     }
@@ -2764,7 +2865,7 @@ mod tests {
 
         let result = parser.parse_next_decl().unwrap();
         assert!(result.is_some());
-        assert!(matches!(result.unwrap(), Declaration::ConstDef(_)));
+        assert!(matches!(result.unwrap().kind, DeclarationKind::ConstDef(_)));
         assert!(parser.at_eof());
         assert!(!parser.diagnostics.has_errors());
     }
