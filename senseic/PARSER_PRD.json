@@ -304,7 +304,7 @@
       "name": "Integration Tests",
       "description": "Add integration tests parsing complete Sensei programs. Test real-world code patterns and error accumulation.",
       "dependencies": ["decl-05"],
-      "completed": false
+      "completed": true
     }
   ],
   "categories": {

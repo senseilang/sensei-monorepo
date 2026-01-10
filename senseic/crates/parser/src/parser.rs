@@ -653,8 +653,13 @@ impl<'src, 'ast> Parser<'src, 'ast> {
             if self.is_stmt_start() {
                 let stmt = self.parse_stmt()?;
                 statements.push(stmt);
+            } else if self.check_noexpect(Token::Identifier) {
+                let stmt = self.parse_assign_or_expr_stmt_or_trailing(&mut last_expr)?;
+                if let Some(stmt) = stmt {
+                    statements.push(stmt);
+                }
             } else if self.can_start_expr() {
-                let expr = self.parse_primary_expr()?;
+                let expr = self.parse_postfix_expr()?;
 
                 if self.eat(Token::Semicolon) {
                     let stmt_span = expr.span.to(self.prev_span);
@@ -785,6 +790,78 @@ impl<'src, 'ast> Parser<'src, 'ast> {
             self.expect(Token::Semicolon)?;
             let span = lo.to(self.prev_span);
             Ok(Statement { span, kind: StatementKind::Expr(expr) })
+        }
+    }
+
+    fn parse_assign_or_expr_stmt_or_trailing(
+        &mut self,
+        last_expr: &mut Option<Expr<'ast>>,
+    ) -> Result<Option<Statement<'ast>>, ParseError> {
+        let first_ident = self.parse_ident()?;
+        let lo = first_ident.span;
+        let mut path_segments = std::vec::Vec::new();
+        path_segments.push(first_ident.inner);
+
+        while self.eat(Token::Dot) {
+            if self.check_noexpect(Token::Identifier) {
+                let segment = self.parse_ident()?;
+                path_segments.push(segment.inner);
+            } else {
+                self.push_expected(ExpectedToken::Ident);
+                return Err(self.unexpected_token());
+            }
+        }
+
+        if self.eat(Token::Equals) {
+            let path_span = lo.to(self.prev_span);
+            let target =
+                NamePath { span: path_span, segments: self.arena.alloc_slice_copy(&path_segments) };
+            let value = self.parse_expr()?;
+            self.expect(Token::Semicolon)?;
+
+            let span = lo.to(self.prev_span);
+            let assign_stmt = AssignStmt { span, target, op: AssignOp::Assign, value };
+            Ok(Some(Statement { span, kind: StatementKind::Assign(self.arena.alloc(assign_stmt)) }))
+        } else {
+            let mut expr = Expr { span: first_ident.span, kind: ExprKind::Ident(path_segments[0]) };
+            for &segment in &path_segments[1..] {
+                let span = lo.to(self.prev_span);
+                let member = Member { span, expr: self.arena.alloc(expr), ident: segment };
+                expr = Expr { span, kind: ExprKind::Member(member) };
+            }
+
+            loop {
+                if self.eat(Token::Dot) {
+                    let ident = self.parse_ident()?;
+                    let span = lo.to(ident.span);
+                    let member = Member { span, expr: self.arena.alloc(expr), ident: ident.inner };
+                    expr = Expr { span, kind: ExprKind::Member(member) };
+                } else if self.check_noexpect(Token::LeftRound) {
+                    let (args, _recovered) =
+                        self.parse_comma_separated(Token::LeftRound, Token::RightRound, |p| {
+                            p.parse_postfix_expr()
+                        })?;
+
+                    let span = lo.to(self.prev_span);
+                    let param_exprs = self.arena.alloc_slice_fill_iter(args);
+                    let call = FnCall { span, fn_expr: self.arena.alloc(expr), param_exprs };
+                    expr = Expr { span, kind: ExprKind::FnCall(call) };
+                } else {
+                    break;
+                }
+            }
+
+            if self.eat(Token::Semicolon) {
+                let span = lo.to(self.prev_span);
+                Ok(Some(Statement { span, kind: StatementKind::Expr(expr) }))
+            } else if self.check_noexpect(Token::RightCurly) || self.at_eof() {
+                *last_expr = Some(expr);
+                Ok(None)
+            } else {
+                self.push_expected(ExpectedToken::Token(Token::Semicolon));
+                self.push_expected(ExpectedToken::Token(Token::RightCurly));
+                Err(self.unexpected_token())
+            }
         }
     }
 
@@ -1129,19 +1206,30 @@ fn format_expected_list(expected: &[ExpectedToken]) -> String {
     }
 }
 
-pub fn parse<'ast, 'src: 'ast>(
-    source: &'src str,
-    arena: &'ast Bump,
-) -> Result<Ast<'ast>, ParseError> {
+pub struct ParseOutput<'ast> {
+    pub ast: Ast<'ast>,
+    pub interner: StringInterner,
+    pub diagnostics: DiagnosticsContext<'ast>,
+}
+
+pub fn parse<'ast, 'src: 'ast>(source: &'src str, arena: &'ast Bump) -> ParseOutput<'ast> {
     let mut declarations = Vec::with_capacity_in(estimate_declaration_count(source), arena);
 
     let mut parser = Parser::new(source, arena);
 
-    while let Some(decl) = parser.parse_next_decl()? {
-        declarations.push(decl);
+    loop {
+        match parser.parse_next_decl() {
+            Ok(Some(decl)) => declarations.push(decl),
+            Ok(None) => break,
+            Err(_) => break,
+        }
     }
 
-    Ok(Ast { declarations })
+    ParseOutput {
+        ast: Ast { declarations },
+        interner: parser.interner,
+        diagnostics: parser.diagnostics,
+    }
 }
 
 #[cfg(test)]
@@ -2888,5 +2976,300 @@ mod tests {
         let result = parser.parse_next_decl();
         assert!(result.is_err());
         assert!(parser.diagnostics.has_errors());
+    }
+
+    // =============================================================
+    // Integration tests - parsing complete Sensei programs
+    // =============================================================
+
+    #[test]
+    fn test_parse_empty_program() {
+        let arena = Bump::new();
+        let output = parse("", &arena);
+
+        assert!(!output.diagnostics.has_errors());
+        assert_eq!(output.ast.declarations.len(), 0);
+    }
+
+    #[test]
+    fn test_parse_single_const() {
+        let arena = Bump::new();
+        let output = parse("const X = 42;", &arena);
+
+        assert!(!output.diagnostics.has_errors());
+        assert_eq!(output.ast.declarations.len(), 1);
+        assert!(matches!(output.ast.declarations[0].kind, DeclarationKind::ConstDef(_)));
+    }
+
+    #[test]
+    fn test_parse_multiple_declarations() {
+        let arena = Bump::new();
+        let source = r#"
+            const LIMIT = 100;
+            const OFFSET: u64 = 0x10;
+            init { let x = LIMIT; }
+            run { return x; }
+        "#;
+        let output = parse(source, &arena);
+
+        assert!(!output.diagnostics.has_errors());
+        assert_eq!(output.ast.declarations.len(), 4);
+        assert!(matches!(output.ast.declarations[0].kind, DeclarationKind::ConstDef(_)));
+        assert!(matches!(output.ast.declarations[1].kind, DeclarationKind::ConstDef(_)));
+        assert!(matches!(output.ast.declarations[2].kind, DeclarationKind::Init(_)));
+        assert!(matches!(output.ast.declarations[3].kind, DeclarationKind::Run(_)));
+    }
+
+    #[test]
+    fn test_parse_program_with_fn_def() {
+        let arena = Bump::new();
+        let source = r#"
+            const add = fn (a: u256, b: u256) -> u256 {
+                return a;
+            };
+        "#;
+        let output = parse(source, &arena);
+
+        assert!(!output.diagnostics.has_errors());
+        assert_eq!(output.ast.declarations.len(), 1);
+        if let DeclarationKind::ConstDef(const_def) = &output.ast.declarations[0].kind {
+            assert!(matches!(const_def.expr.kind, ExprKind::TypeDef(TypeDef::FnDef(_))));
+        } else {
+            panic!("expected ConstDef");
+        }
+    }
+
+    #[test]
+    fn test_parse_program_with_struct_def() {
+        let arena = Bump::new();
+        let source = r#"
+            const Point = struct {
+                x: u256,
+                y: u256,
+            };
+        "#;
+        let output = parse(source, &arena);
+
+        assert!(!output.diagnostics.has_errors());
+        assert_eq!(output.ast.declarations.len(), 1);
+        if let DeclarationKind::ConstDef(const_def) = &output.ast.declarations[0].kind {
+            assert!(matches!(const_def.expr.kind, ExprKind::TypeDef(TypeDef::StructDef(_))));
+        } else {
+            panic!("expected ConstDef");
+        }
+    }
+
+    #[test]
+    fn test_parse_program_with_conditionals() {
+        let arena = Bump::new();
+        let source = r#"
+            run {
+                if true {
+                    let x = 1;
+                } else if false {
+                    let y = 2;
+                } else {
+                    let z = 3;
+                }
+            }
+        "#;
+        let output = parse(source, &arena);
+
+        assert!(!output.diagnostics.has_errors());
+        assert_eq!(output.ast.declarations.len(), 1);
+        if let DeclarationKind::Run(block) = &output.ast.declarations[0].kind {
+            assert_eq!(block.statements.len(), 1);
+            assert!(matches!(block.statements[0].kind, StatementKind::Conditional(_)));
+        } else {
+            panic!("expected Run");
+        }
+    }
+
+    #[test]
+    fn test_parse_program_with_while_loop() {
+        let arena = Bump::new();
+        let source = r#"
+            run {
+                let mut i = 0;
+                while i {
+                    i = 1;
+                }
+                inline while true {
+                    return i;
+                }
+            }
+        "#;
+        let output = parse(source, &arena);
+
+        assert!(!output.diagnostics.has_errors());
+        assert_eq!(output.ast.declarations.len(), 1);
+        if let DeclarationKind::Run(block) = &output.ast.declarations[0].kind {
+            assert_eq!(block.statements.len(), 3);
+            assert!(matches!(block.statements[0].kind, StatementKind::Let(_)));
+            if let StatementKind::While(while_stmt) = &block.statements[1].kind {
+                assert!(!while_stmt.inline);
+            } else {
+                panic!("expected While");
+            }
+            if let StatementKind::While(while_stmt) = &block.statements[2].kind {
+                assert!(while_stmt.inline);
+            } else {
+                panic!("expected inline While");
+            }
+        } else {
+            panic!("expected Run");
+        }
+    }
+
+    #[test]
+    fn test_parse_program_with_struct_literal() {
+        let arena = Bump::new();
+        let source = r#"
+            const origin = Point { x: 0, y: 0 };
+        "#;
+        let output = parse(source, &arena);
+
+        assert!(!output.diagnostics.has_errors());
+        assert_eq!(output.ast.declarations.len(), 1);
+        if let DeclarationKind::ConstDef(const_def) = &output.ast.declarations[0].kind {
+            assert!(matches!(const_def.expr.kind, ExprKind::StructLiteral(_)));
+        } else {
+            panic!("expected ConstDef");
+        }
+    }
+
+    #[test]
+    fn test_parse_program_with_comptime_block() {
+        let arena = Bump::new();
+        let source = r#"
+            const computed = comptime {
+                let x = 1;
+                x
+            };
+        "#;
+        let output = parse(source, &arena);
+
+        assert!(!output.diagnostics.has_errors());
+        assert_eq!(output.ast.declarations.len(), 1);
+        if let DeclarationKind::ConstDef(const_def) = &output.ast.declarations[0].kind {
+            assert!(matches!(const_def.expr.kind, ExprKind::Comptime(_)));
+        } else {
+            panic!("expected ConstDef");
+        }
+    }
+
+    #[test]
+    fn test_parse_program_with_fn_calls() {
+        let arena = Bump::new();
+        let source = r#"
+            run {
+                foo();
+                bar(1, 2, 3);
+                baz.qux(a, b);
+            }
+        "#;
+        let output = parse(source, &arena);
+
+        assert!(!output.diagnostics.has_errors());
+        assert_eq!(output.ast.declarations.len(), 1);
+        if let DeclarationKind::Run(block) = &output.ast.declarations[0].kind {
+            assert_eq!(block.statements.len(), 3);
+            for stmt in block.statements.iter() {
+                if let StatementKind::Expr(expr) = &stmt.kind {
+                    assert!(matches!(expr.kind, ExprKind::FnCall(_)));
+                } else {
+                    panic!("expected Expr statement with FnCall");
+                }
+            }
+        } else {
+            panic!("expected Run");
+        }
+    }
+
+    #[test]
+    fn test_parse_program_recovery_missing_semicolon() {
+        let arena = Bump::new();
+        let source = r#"
+            const X = 42
+            const Y = 100;
+        "#;
+        let output = parse(source, &arena);
+
+        assert!(output.diagnostics.has_errors());
+    }
+
+    #[test]
+    fn test_parse_program_recovery_missing_closing_brace() {
+        let arena = Bump::new();
+        let source = "init { let x = 42;";
+        let output = parse(source, &arena);
+
+        assert!(output.diagnostics.has_errors());
+        assert_eq!(output.ast.declarations.len(), 1);
+    }
+
+    #[test]
+    fn test_parse_program_complex_expressions() {
+        let arena = Bump::new();
+        let source = r#"
+            run {
+                let result = foo.bar(1).baz().qux;
+                return result;
+            }
+        "#;
+        let output = parse(source, &arena);
+
+        assert!(!output.diagnostics.has_errors());
+        assert_eq!(output.ast.declarations.len(), 1);
+        if let DeclarationKind::Run(block) = &output.ast.declarations[0].kind {
+            assert_eq!(block.statements.len(), 2);
+        } else {
+            panic!("expected Run");
+        }
+    }
+
+    #[test]
+    fn test_parse_program_nested_blocks() {
+        let arena = Bump::new();
+        let source = r#"
+            run {
+                {
+                    let x = 1;
+                    {
+                        let y = 2;
+                    }
+                }
+            }
+        "#;
+        let output = parse(source, &arena);
+
+        assert!(!output.diagnostics.has_errors());
+        assert_eq!(output.ast.declarations.len(), 1);
+        if let DeclarationKind::Run(block) = &output.ast.declarations[0].kind {
+            assert_eq!(block.statements.len(), 1);
+            assert!(matches!(block.statements[0].kind, StatementKind::Block(_)));
+        } else {
+            panic!("expected Run");
+        }
+    }
+
+    #[test]
+    fn test_parse_program_display_output() {
+        use crate::display::AstDisplay;
+
+        let arena = Bump::new();
+        let source = r#"
+            const VALUE = 42;
+            init { return VALUE; }
+        "#;
+        let output = parse(source, &arena);
+
+        assert!(!output.diagnostics.has_errors());
+        let display = AstDisplay::new(&output.ast, &output.interner);
+        let formatted = format!("{}", display);
+        assert!(formatted.contains("const-def"));
+        assert!(formatted.contains("\"VALUE\""));
+        assert!(formatted.contains("init"));
+        assert!(formatted.contains("return"));
     }
 }

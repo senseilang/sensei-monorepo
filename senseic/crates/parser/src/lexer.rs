@@ -30,7 +30,7 @@ fn lex_skip_block_comment(lex: &mut LogosLexer<Token>) -> Result<Skip, ()> {
 }
 
 #[derive(Logos, Debug, Clone, PartialEq, Eq, Copy)]
-#[logos(skip r"[ \t]+")]
+#[logos(skip r"[ \t\r\n]+")]
 #[logos(skip(r"//", lex_skip_line_comment))]
 #[logos(skip(r"/\*", lex_skip_block_comment))]
 pub enum Token {
@@ -407,7 +407,7 @@ mod tests {
     fn test_line_comment_skipped() {
         let source = "// this is a comment\nfoo";
         let tokens = lex_tokens(source);
-        assert_eq!(tokens, vec![Token::Error, Token::Identifier]);
+        assert_eq!(tokens, vec![Token::Identifier]);
     }
 
     #[test]
@@ -449,7 +449,7 @@ mod tests {
     fn test_line_comment_utf8() {
         let source = "// café ☕\nfoo";
         let tokens = lex_tokens(source);
-        assert_eq!(tokens, vec![Token::Error, Token::Identifier]);
+        assert_eq!(tokens, vec![Token::Identifier]);
     }
 
     #[test]
