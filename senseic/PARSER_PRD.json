@@ -256,7 +256,7 @@
       "name": "While Statement",
       "description": "Parse 'inline? while expr block' into Statement::While. Inline flag is optional. Add case to stmt dispatch.",
       "dependencies": ["expr-09", "expr-02", "stmt-08"],
-      "completed": false
+      "completed": true
     },
     {
       "id": "decl-02",

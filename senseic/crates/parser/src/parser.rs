@@ -861,7 +861,7 @@ impl<'src, 'ast> Parser<'src, 'ast> {
         } else if self.check_noexpect(Token::LeftCurly) {
             self.parse_block_stmt()
         } else if self.check_noexpect(Token::Inline) || self.check_noexpect(Token::While) {
-            todo!("stmt-07: while statement")
+            self.parse_while_stmt()
         } else if self.check_noexpect(Token::Identifier) {
             self.parse_assign_or_expr_stmt()
         } else {
@@ -879,6 +879,15 @@ impl<'src, 'ast> Parser<'src, 'ast> {
         let block = self.parse_block()?;
         self.eat(Token::Semicolon);
         Ok(Statement::Block(block))
+    }
+
+    pub fn parse_while_stmt(&mut self) -> Result<Statement<'ast>, ParseError> {
+        let inline = self.eat(Token::Inline);
+        self.expect(Token::While)?;
+        let condition = self.parse_postfix_expr()?;
+        let body = self.parse_block()?;
+        let while_stmt = WhileStmt { inline, condition, body };
+        Ok(Statement::While(self.arena.alloc(while_stmt)))
     }
 
     pub fn parse_comma_separated_until<T>(
@@ -2287,6 +2296,68 @@ mod tests {
         let result = parser.parse_stmt().unwrap();
         assert!(matches!(result, Statement::Block(_)));
         assert_eq!(parser.token, Some(Token::Identifier));
+        assert!(!parser.diagnostics.has_errors());
+    }
+
+    #[test]
+    fn test_parse_while_stmt_simple() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("while true {}", &arena);
+
+        let result = parser.parse_stmt().unwrap();
+        assert!(matches!(result, Statement::While(_)));
+        if let Statement::While(while_stmt) = result {
+            assert!(!while_stmt.inline);
+            assert!(matches!(while_stmt.condition, Expr::BoolLiteral(true)));
+            assert_eq!(while_stmt.body.statements.len(), 0);
+            assert!(while_stmt.body.last_expr.is_none());
+        }
+        assert!(parser.at_eof());
+        assert!(!parser.diagnostics.has_errors());
+    }
+
+    #[test]
+    fn test_parse_while_stmt_inline() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("inline while cond { foo; }", &arena);
+
+        let result = parser.parse_stmt().unwrap();
+        assert!(matches!(result, Statement::While(_)));
+        if let Statement::While(while_stmt) = result {
+            assert!(while_stmt.inline);
+            assert!(matches!(while_stmt.condition, Expr::Ident(_)));
+            assert_eq!(while_stmt.body.statements.len(), 1);
+        }
+        assert!(parser.at_eof());
+        assert!(!parser.diagnostics.has_errors());
+    }
+
+    #[test]
+    fn test_parse_while_stmt_with_body() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("while x { let y = 1; return y; }", &arena);
+
+        let result = parser.parse_stmt().unwrap();
+        assert!(matches!(result, Statement::While(_)));
+        if let Statement::While(while_stmt) = result {
+            assert!(!while_stmt.inline);
+            assert_eq!(while_stmt.body.statements.len(), 2);
+        }
+        assert!(parser.at_eof());
+        assert!(!parser.diagnostics.has_errors());
+    }
+
+    #[test]
+    fn test_parse_while_stmt_complex_condition() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("while foo.bar() {}", &arena);
+
+        let result = parser.parse_stmt().unwrap();
+        assert!(matches!(result, Statement::While(_)));
+        if let Statement::While(while_stmt) = result {
+            assert!(matches!(while_stmt.condition, Expr::FnCall(_)));
+        }
+        assert!(parser.at_eof());
         assert!(!parser.diagnostics.has_errors());
     }
 }
