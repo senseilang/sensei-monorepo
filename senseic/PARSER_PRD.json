@@ -176,7 +176,7 @@
       "name": "Conditional Expression",
       "description": "Parse 'if cond { } else if cond { } else { }' as expression. Requires else branch (uses Infallible for ElseMissing type param). Report error if else missing but continue recovery.",
       "dependencies": ["expr-02", "expr-05"],
-      "completed": false
+      "completed": true
     },
     {
       "id": "expr-10",

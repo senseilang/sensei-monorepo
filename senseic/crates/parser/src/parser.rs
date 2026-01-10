@@ -610,6 +610,42 @@ impl<'src, 'ast> Parser<'src, 'ast> {
         Ok(Expr::Comptime(block))
     }
 
+    pub fn parse_cond_expr(&mut self) -> Result<Expr<'ast>, ParseError> {
+        self.expect(Token::If)?;
+
+        let condition = self.parse_postfix_expr()?;
+        let body = self.parse_block()?;
+        let r#if = IfBranch { condition, body };
+
+        let mut else_ifs = std::vec::Vec::new();
+
+        loop {
+            if !self.eat(Token::Else) {
+                self.diagnostics
+                    .report(self.current_span, "conditional expression requires an `else` branch");
+                let else_body = MaybeOr::Just(Block {
+                    statements: self.arena.alloc_slice_fill_iter(std::iter::empty()),
+                    last_expr: None,
+                });
+                let else_ifs = self.arena.alloc_slice_fill_iter(else_ifs);
+                let cond = Conditional { r#if, else_ifs, else_body };
+                return Ok(Expr::Conditional(self.arena.alloc(cond)));
+            }
+
+            if self.eat(Token::If) {
+                let condition = self.parse_postfix_expr()?;
+                let body = self.parse_block()?;
+                else_ifs.push(IfBranch { condition, body });
+            } else {
+                let else_block = self.parse_block()?;
+                let else_body = MaybeOr::Just(else_block);
+                let else_ifs = self.arena.alloc_slice_fill_iter(else_ifs);
+                let cond = Conditional { r#if, else_ifs, else_body };
+                return Ok(Expr::Conditional(self.arena.alloc(cond)));
+            }
+        }
+    }
+
     fn is_stmt_start(&self) -> bool {
         matches!(
             self.token,
@@ -1661,5 +1697,65 @@ mod tests {
             panic!("expected Ident expression");
         }
         assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_cond_expr_simple() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("if true { 1 } else { 2 }", &arena);
+
+        let result = parser.parse_cond_expr().unwrap();
+        assert!(matches!(result, Expr::Conditional(_)));
+        if let Expr::Conditional(cond) = result {
+            assert!(matches!(cond.r#if.condition, Expr::BoolLiteral(true)));
+            assert!(cond.r#if.body.last_expr.is_some());
+            assert_eq!(cond.else_ifs.len(), 0);
+            assert!(matches!(cond.else_body, MaybeOr::Just(_)));
+        }
+        assert!(parser.at_eof());
+        assert!(!parser.diagnostics.has_errors());
+    }
+
+    #[test]
+    fn test_parse_cond_expr_with_else_if() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("if a { 1 } else if b { 2 } else { 3 }", &arena);
+
+        let result = parser.parse_cond_expr().unwrap();
+        if let Expr::Conditional(cond) = result {
+            assert_eq!(cond.else_ifs.len(), 1);
+            assert!(matches!(cond.else_body, MaybeOr::Just(_)));
+        } else {
+            panic!("expected Conditional");
+        }
+        assert!(parser.at_eof());
+        assert!(!parser.diagnostics.has_errors());
+    }
+
+    #[test]
+    fn test_parse_cond_expr_multiple_else_ifs() {
+        let arena = Bump::new();
+        let mut parser =
+            Parser::new("if a { 1 } else if b { 2 } else if c { 3 } else { 4 }", &arena);
+
+        let result = parser.parse_cond_expr().unwrap();
+        if let Expr::Conditional(cond) = result {
+            assert_eq!(cond.else_ifs.len(), 2);
+            assert!(matches!(cond.else_body, MaybeOr::Just(_)));
+        } else {
+            panic!("expected Conditional");
+        }
+        assert!(parser.at_eof());
+        assert!(!parser.diagnostics.has_errors());
+    }
+
+    #[test]
+    fn test_parse_cond_expr_missing_else_reports_error() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("if true { 1 }", &arena);
+
+        let result = parser.parse_cond_expr().unwrap();
+        assert!(matches!(result, Expr::Conditional(_)));
+        assert!(parser.diagnostics.has_errors());
     }
 }
