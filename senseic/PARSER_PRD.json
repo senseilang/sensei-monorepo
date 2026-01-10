@@ -136,7 +136,7 @@
       "name": "Block Expression",
       "description": "Parse '{ stmt* expr? }' into Block. Call parse_stmt() in a loop (can be stubbed initially). Handle statement list and optional trailing expression (expr without semicolon at end).",
       "dependencies": ["infra-02", "stmt-08"],
-      "completed": false
+      "completed": true
     },
     {
       "id": "expr-03",

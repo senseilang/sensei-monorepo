@@ -493,6 +493,86 @@ impl<'src, 'ast> Parser<'src, 'ast> {
         Ok(StructDef { fields })
     }
 
+    pub fn parse_block(&mut self) -> Result<Block<'ast>, ParseError> {
+        let open_span = self.current_span;
+        self.expect(Token::LeftCurly)?;
+
+        let mut statements = std::vec::Vec::new();
+        let mut last_expr: Option<Expr<'ast>> = None;
+
+        loop {
+            if self.check_noexpect(Token::RightCurly) {
+                self.bump();
+                break;
+            }
+
+            if self.at_eof() {
+                let msg = "unclosed delimiter: expected `}`";
+                self.diagnostics.report_with_span_note(
+                    self.current_span,
+                    msg,
+                    open_span,
+                    "opening delimiter here",
+                );
+                break;
+            }
+
+            if self.is_stmt_start() {
+                let stmt = self.parse_stmt()?;
+                statements.push(stmt);
+            } else if self.can_start_expr() {
+                let expr = self.parse_primary_expr()?;
+
+                if self.eat(Token::Semicolon) {
+                    statements.push(Statement::Expr(expr));
+                } else if self.check_noexpect(Token::RightCurly) || self.at_eof() {
+                    last_expr = Some(expr);
+                } else {
+                    self.push_expected(ExpectedToken::Token(Token::Semicolon));
+                    self.push_expected(ExpectedToken::Token(Token::RightCurly));
+                    return Err(self.unexpected_token());
+                }
+            } else {
+                self.push_expected(ExpectedToken::Token(Token::RightCurly));
+                self.push_expected(ExpectedToken::Expr);
+                return Err(self.unexpected_token());
+            }
+        }
+
+        let statements = self.arena.alloc_slice_fill_iter(statements);
+        let last_expr = last_expr.map(|e| self.arena.alloc(e) as &mut _);
+
+        Ok(Block { statements, last_expr })
+    }
+
+    fn is_stmt_start(&self) -> bool {
+        matches!(
+            self.token,
+            Some(
+                Token::Let
+                    | Token::Return
+                    | Token::If
+                    | Token::LeftCurly
+                    | Token::Inline
+                    | Token::While
+            )
+        )
+    }
+
+    fn can_start_expr(&self) -> bool {
+        matches!(
+            self.token,
+            Some(
+                Token::Identifier
+                    | Token::True
+                    | Token::False
+                    | Token::DecLiteral
+                    | Token::HexLiteral
+                    | Token::BinLiteral
+            )
+        )
+    }
+
     pub fn parse_stmt(&mut self) -> Result<Statement<'ast>, ParseError> {
         if self.check_noexpect(Token::Let) {
             todo!("stmt-01: let statement")
@@ -1122,6 +1202,71 @@ mod tests {
 
         let result = parser.parse_stmt();
         assert!(result.is_err());
+        assert!(parser.diagnostics.has_errors());
+    }
+
+    #[test]
+    fn test_parse_block_empty() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("{}", &arena);
+
+        let result = parser.parse_block().unwrap();
+        assert_eq!(result.statements.len(), 0);
+        assert!(result.last_expr.is_none());
+        assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_block_single_trailing_expr() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("{ foo }", &arena);
+
+        let result = parser.parse_block().unwrap();
+        assert_eq!(result.statements.len(), 0);
+        assert!(result.last_expr.is_some());
+        if let Some(Expr::Ident(istr)) = result.last_expr.as_deref() {
+            assert_eq!(parser.interner.resolve(*istr), "foo");
+        } else {
+            panic!("expected Ident expression");
+        }
+        assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_block_single_expr_stmt() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("{ foo; }", &arena);
+
+        let result = parser.parse_block().unwrap();
+        assert_eq!(result.statements.len(), 1);
+        assert!(result.last_expr.is_none());
+        assert!(matches!(result.statements[0], Statement::Expr(_)));
+        assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_block_expr_stmt_and_trailing_expr() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("{ foo; bar }", &arena);
+
+        let result = parser.parse_block().unwrap();
+        assert_eq!(result.statements.len(), 1);
+        assert!(result.last_expr.is_some());
+        if let Some(Expr::Ident(istr)) = result.last_expr.as_deref() {
+            assert_eq!(parser.interner.resolve(*istr), "bar");
+        } else {
+            panic!("expected Ident expression");
+        }
+        assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_block_recovery_on_unclosed() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("{ foo", &arena);
+
+        let result = parser.parse_block().unwrap();
+        assert!(result.last_expr.is_some());
         assert!(parser.diagnostics.has_errors());
     }
 }
