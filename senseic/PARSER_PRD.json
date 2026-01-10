@@ -248,7 +248,7 @@
       "name": "Expression Statement",
       "description": "Parse 'expr_no_block;' as statement. Requires semicolon terminator. Add case to stmt dispatch.",
       "dependencies": ["expr-09", "stmt-08"],
-      "completed": false
+      "completed": true
     },
     {
       "id": "stmt-07",

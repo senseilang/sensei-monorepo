@@ -851,6 +851,21 @@ impl<'src, 'ast> Parser<'src, 'ast> {
         )
     }
 
+    fn can_start_expr_no_block(&self) -> bool {
+        matches!(
+            self.token,
+            Some(
+                Token::True
+                    | Token::False
+                    | Token::DecLiteral
+                    | Token::HexLiteral
+                    | Token::BinLiteral
+                    | Token::Fn
+                    | Token::Struct
+            )
+        )
+    }
+
     pub fn parse_stmt(&mut self) -> Result<Statement<'ast>, ParseError> {
         if self.check_noexpect(Token::Let) {
             self.parse_let_stmt()
@@ -864,6 +879,8 @@ impl<'src, 'ast> Parser<'src, 'ast> {
             self.parse_while_stmt()
         } else if self.check_noexpect(Token::Identifier) {
             self.parse_assign_or_expr_stmt()
+        } else if self.can_start_expr_no_block() {
+            self.parse_expr_stmt()
         } else {
             self.push_expected(ExpectedToken::Token(Token::Let));
             self.push_expected(ExpectedToken::Token(Token::Return));
@@ -873,6 +890,12 @@ impl<'src, 'ast> Parser<'src, 'ast> {
             self.push_expected(ExpectedToken::Expr);
             Err(self.unexpected_token())
         }
+    }
+
+    pub fn parse_expr_stmt(&mut self) -> Result<Statement<'ast>, ParseError> {
+        let expr = self.parse_expr_no_block()?;
+        self.expect(Token::Semicolon)?;
+        Ok(Statement::Expr(expr))
     }
 
     pub fn parse_block_stmt(&mut self) -> Result<Statement<'ast>, ParseError> {
@@ -2359,5 +2382,48 @@ mod tests {
         }
         assert!(parser.at_eof());
         assert!(!parser.diagnostics.has_errors());
+    }
+
+    #[test]
+    fn test_parse_expr_stmt_bool_literal() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("true;", &arena);
+
+        let result = parser.parse_stmt().unwrap();
+        assert!(matches!(result, Statement::Expr(Expr::BoolLiteral(true))));
+        assert!(parser.at_eof());
+        assert!(!parser.diagnostics.has_errors());
+    }
+
+    #[test]
+    fn test_parse_expr_stmt_int_literal() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("42;", &arena);
+
+        let result = parser.parse_stmt().unwrap();
+        assert!(matches!(result, Statement::Expr(Expr::IntLiteral(_))));
+        assert!(parser.at_eof());
+        assert!(!parser.diagnostics.has_errors());
+    }
+
+    #[test]
+    fn test_parse_expr_stmt_fn_call() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("foo();", &arena);
+
+        let result = parser.parse_stmt().unwrap();
+        assert!(matches!(result, Statement::Expr(Expr::FnCall(_))));
+        assert!(parser.at_eof());
+        assert!(!parser.diagnostics.has_errors());
+    }
+
+    #[test]
+    fn test_parse_expr_stmt_requires_semicolon() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("42 foo", &arena);
+
+        let result = parser.parse_stmt();
+        assert!(result.is_err());
+        assert!(parser.diagnostics.has_errors());
     }
 }
