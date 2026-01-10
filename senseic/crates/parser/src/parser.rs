@@ -637,6 +637,69 @@ impl<'src, 'ast> Parser<'src, 'ast> {
         Ok(Statement::Let(self.arena.alloc(let_stmt)))
     }
 
+    pub fn parse_assign_stmt(&mut self) -> Result<Statement<'ast>, ParseError> {
+        let target = self.parse_name_path()?;
+        self.expect(Token::Equals)?;
+        let value = self.parse_expr()?;
+        self.expect(Token::Semicolon)?;
+
+        let assign_stmt = AssignStmt { target, op: AssignOp::Assign, value };
+        Ok(Statement::Assign(self.arena.alloc(assign_stmt)))
+    }
+
+    fn parse_assign_or_expr_stmt(&mut self) -> Result<Statement<'ast>, ParseError> {
+        let first_ident = self.parse_ident()?;
+        let mut path_segments = std::vec::Vec::new();
+        path_segments.push(first_ident.inner);
+
+        while self.eat(Token::Dot) {
+            if self.check_noexpect(Token::Identifier) {
+                let segment = self.parse_ident()?;
+                path_segments.push(segment.inner);
+            } else {
+                self.push_expected(ExpectedToken::Ident);
+                return Err(self.unexpected_token());
+            }
+        }
+
+        if self.eat(Token::Equals) {
+            let target = NamePath(self.arena.alloc_slice_copy(&path_segments));
+            let value = self.parse_expr()?;
+            self.expect(Token::Semicolon)?;
+
+            let assign_stmt = AssignStmt { target, op: AssignOp::Assign, value };
+            Ok(Statement::Assign(self.arena.alloc(assign_stmt)))
+        } else {
+            let mut expr = Expr::Ident(path_segments[0]);
+            for &segment in &path_segments[1..] {
+                let member = Member { expr: self.arena.alloc(expr), ident: segment };
+                expr = Expr::Member(member);
+            }
+
+            loop {
+                if self.eat(Token::Dot) {
+                    let ident = self.parse_ident()?;
+                    let member = Member { expr: self.arena.alloc(expr), ident: ident.inner };
+                    expr = Expr::Member(member);
+                } else if self.check_noexpect(Token::LeftRound) {
+                    let (args, _recovered) =
+                        self.parse_comma_separated(Token::LeftRound, Token::RightRound, |p| {
+                            p.parse_postfix_expr()
+                        })?;
+
+                    let param_exprs = self.arena.alloc_slice_fill_iter(args);
+                    let call = FnCall { fn_expr: self.arena.alloc(expr), param_exprs };
+                    expr = Expr::FnCall(call);
+                } else {
+                    break;
+                }
+            }
+
+            self.expect(Token::Semicolon)?;
+            Ok(Statement::Expr(expr))
+        }
+    }
+
     pub fn parse_cond_expr(&mut self) -> Result<Expr<'ast>, ParseError> {
         self.expect(Token::If)?;
 
@@ -800,7 +863,7 @@ impl<'src, 'ast> Parser<'src, 'ast> {
         } else if self.check_noexpect(Token::Inline) || self.check_noexpect(Token::While) {
             todo!("stmt-07: while statement")
         } else if self.check_noexpect(Token::Identifier) {
-            todo!("stmt-03/stmt-06: assign or expression statement")
+            self.parse_assign_or_expr_stmt()
         } else {
             self.push_expected(ExpectedToken::Token(Token::Let));
             self.push_expected(ExpectedToken::Token(Token::Return));
@@ -2107,5 +2170,65 @@ mod tests {
         }
         assert!(parser.at_eof());
         assert!(!parser.diagnostics.has_errors());
+    }
+
+    #[test]
+    fn test_parse_assign_stmt_simple() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("x = 42;", &arena);
+
+        let result = parser.parse_stmt().unwrap();
+        assert!(matches!(result, Statement::Assign(_)));
+        if let Statement::Assign(assign) = result {
+            assert_eq!(assign.target.0.len(), 1);
+            assert_eq!(parser.interner.resolve(assign.target.0[0]), "x");
+            assert!(matches!(assign.op, AssignOp::Assign));
+            assert!(matches!(assign.value, Expr::IntLiteral(_)));
+        }
+        assert!(parser.at_eof());
+        assert!(!parser.diagnostics.has_errors());
+    }
+
+    #[test]
+    fn test_parse_assign_stmt_name_path() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("foo.bar.baz = true;", &arena);
+
+        let result = parser.parse_stmt().unwrap();
+        assert!(matches!(result, Statement::Assign(_)));
+        if let Statement::Assign(assign) = result {
+            assert_eq!(assign.target.0.len(), 3);
+            assert_eq!(parser.interner.resolve(assign.target.0[0]), "foo");
+            assert_eq!(parser.interner.resolve(assign.target.0[1]), "bar");
+            assert_eq!(parser.interner.resolve(assign.target.0[2]), "baz");
+            assert!(matches!(assign.value, Expr::BoolLiteral(true)));
+        }
+        assert!(parser.at_eof());
+        assert!(!parser.diagnostics.has_errors());
+    }
+
+    #[test]
+    fn test_parse_assign_stmt_complex_value() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("target = foo.bar();", &arena);
+
+        let result = parser.parse_stmt().unwrap();
+        assert!(matches!(result, Statement::Assign(_)));
+        if let Statement::Assign(assign) = result {
+            assert_eq!(assign.target.0.len(), 1);
+            assert!(matches!(assign.value, Expr::FnCall(_)));
+        }
+        assert!(parser.at_eof());
+        assert!(!parser.diagnostics.has_errors());
+    }
+
+    #[test]
+    fn test_parse_assign_stmt_missing_semicolon_at_eof_recovers() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("x = 42", &arena);
+
+        let result = parser.parse_stmt().unwrap();
+        assert!(matches!(result, Statement::Assign(_)));
+        assert!(parser.diagnostics.has_errors());
     }
 }

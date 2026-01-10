@@ -224,7 +224,7 @@
       "name": "Assign Statement",
       "description": "Parse 'name_path = expr;' into Statement::Assign. Uses NamePath as target, AssignOp::Assign. Add case to stmt dispatch.",
       "dependencies": ["type-01", "expr-09", "stmt-08"],
-      "completed": false
+      "completed": true
     },
     {
       "id": "stmt-04",
