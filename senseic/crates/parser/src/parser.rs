@@ -482,6 +482,25 @@ impl<'src, 'ast> Parser<'src, 'ast> {
         Ok(FieldDef { name, r#type })
     }
 
+    pub fn parse_field_init(&mut self) -> Result<FieldInit<'ast>, ParseError> {
+        let name = self.parse_ident()?.inner;
+        self.expect(Token::Colon)?;
+        let value = self.parse_postfix_expr()?;
+        Ok(FieldInit { name, value })
+    }
+
+    pub fn parse_struct_literal(&mut self) -> Result<StructLiteral<'ast>, ParseError> {
+        let type_path = self.parse_name_path()?;
+
+        let (fields, _recovered) =
+            self.parse_comma_separated(Token::LeftCurly, Token::RightCurly, |p| {
+                p.parse_field_init()
+            })?;
+
+        let fields = self.arena.alloc_slice_fill_iter(fields);
+        Ok(StructLiteral { type_path, fields })
+    }
+
     pub fn parse_struct_def(&mut self) -> Result<StructDef<'ast>, ParseError> {
         self.expect(Token::Struct)?;
 
@@ -1562,5 +1581,85 @@ mod tests {
         let result = parser.parse_comptime_block();
         assert!(result.is_err());
         assert!(parser.diagnostics.has_errors());
+    }
+
+    #[test]
+    fn test_parse_struct_literal_empty() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("MyStruct {}", &arena);
+
+        let result = parser.parse_struct_literal().unwrap();
+        assert_eq!(result.type_path.0.len(), 1);
+        assert_eq!(parser.interner.resolve(result.type_path.0[0]), "MyStruct");
+        assert_eq!(result.fields.len(), 0);
+        assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_struct_literal_single_field() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("Point { x: 42 }", &arena);
+
+        let result = parser.parse_struct_literal().unwrap();
+        assert_eq!(result.type_path.0.len(), 1);
+        assert_eq!(parser.interner.resolve(result.type_path.0[0]), "Point");
+        assert_eq!(result.fields.len(), 1);
+        assert_eq!(parser.interner.resolve(result.fields[0].name), "x");
+        assert!(matches!(result.fields[0].value, Expr::IntLiteral(_)));
+        assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_struct_literal_multiple_fields() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("Point { x: 1, y: 2, z: 3 }", &arena);
+
+        let result = parser.parse_struct_literal().unwrap();
+        assert_eq!(result.type_path.0.len(), 1);
+        assert_eq!(result.fields.len(), 3);
+        assert_eq!(parser.interner.resolve(result.fields[0].name), "x");
+        assert_eq!(parser.interner.resolve(result.fields[1].name), "y");
+        assert_eq!(parser.interner.resolve(result.fields[2].name), "z");
+        assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_struct_literal_trailing_comma() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("Point { x: 1, y: 2, }", &arena);
+
+        let result = parser.parse_struct_literal().unwrap();
+        assert_eq!(result.fields.len(), 2);
+        assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_struct_literal_namespaced() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("math.geometry.Point { x: 1 }", &arena);
+
+        let result = parser.parse_struct_literal().unwrap();
+        assert_eq!(result.type_path.0.len(), 3);
+        assert_eq!(parser.interner.resolve(result.type_path.0[0]), "math");
+        assert_eq!(parser.interner.resolve(result.type_path.0[1]), "geometry");
+        assert_eq!(parser.interner.resolve(result.type_path.0[2]), "Point");
+        assert_eq!(result.fields.len(), 1);
+        assert!(parser.at_eof());
+    }
+
+    #[test]
+    fn test_parse_struct_literal_field_with_ident_value() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("Config { value: foo }", &arena);
+
+        let result = parser.parse_struct_literal().unwrap();
+        assert_eq!(result.fields.len(), 1);
+        assert_eq!(parser.interner.resolve(result.fields[0].name), "value");
+        if let Expr::Ident(istr) = result.fields[0].value {
+            assert_eq!(parser.interner.resolve(istr), "foo");
+        } else {
+            panic!("expected Ident expression");
+        }
+        assert!(parser.at_eof());
     }
 }
