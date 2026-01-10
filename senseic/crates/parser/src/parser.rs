@@ -318,6 +318,16 @@ impl<'src, 'ast> Parser<'src, 'ast> {
         Ok(Declaration::Run(block))
     }
 
+    pub fn parse_const_def(&mut self) -> Result<Declaration<'ast>, ParseError> {
+        self.expect(Token::Const)?;
+        let ident = self.parse_ident()?.inner;
+        let r#type = if self.eat(Token::Colon) { Some(self.parse_expr()?) } else { None };
+        self.expect(Token::Equals)?;
+        let expr = self.parse_expr()?;
+        self.expect(Token::Semicolon)?;
+        Ok(Declaration::ConstDef(ConstDef { ident, r#type, expr }))
+    }
+
     pub fn parse_ident(&mut self) -> Result<Ident, ParseError> {
         if self.check_with(Token::Identifier, ExpectedToken::Ident) {
             let span = self.current_span;
@@ -2658,5 +2668,47 @@ mod tests {
             assert!(block.last_expr.is_some());
         }
         assert!(parser.diagnostics.has_errors());
+    }
+
+    #[test]
+    fn test_parse_const_def_simple() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("const FOO = 42;", &arena);
+
+        let result = parser.parse_const_def().unwrap();
+        assert!(matches!(result, Declaration::ConstDef(_)));
+        if let Declaration::ConstDef(const_def) = result {
+            assert!(const_def.r#type.is_none());
+        }
+        assert!(parser.at_eof());
+        assert!(!parser.diagnostics.has_errors());
+    }
+
+    #[test]
+    fn test_parse_const_def_with_type() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("const BAR: u256 = 100;", &arena);
+
+        let result = parser.parse_const_def().unwrap();
+        assert!(matches!(result, Declaration::ConstDef(_)));
+        if let Declaration::ConstDef(const_def) = result {
+            assert!(const_def.r#type.is_some());
+        }
+        assert!(parser.at_eof());
+        assert!(!parser.diagnostics.has_errors());
+    }
+
+    #[test]
+    fn test_parse_const_def_complex_expr() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("const MAX: u256 = foo.bar(1, 2);", &arena);
+
+        let result = parser.parse_const_def().unwrap();
+        assert!(matches!(result, Declaration::ConstDef(_)));
+        if let Declaration::ConstDef(const_def) = result {
+            assert!(const_def.r#type.is_some());
+        }
+        assert!(parser.at_eof());
+        assert!(!parser.diagnostics.has_errors());
     }
 }

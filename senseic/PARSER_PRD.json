@@ -280,7 +280,7 @@
       "name": "ConstDef Declaration",
       "description": "Parse 'const ident (: expr)? = expr;' into Declaration::ConstDef. Type annotation parsed as expr.",
       "dependencies": ["atom-01", "expr-09"],
-      "completed": false
+      "completed": true
     },
     {
       "id": "decl-05",
