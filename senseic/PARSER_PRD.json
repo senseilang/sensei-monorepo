@@ -240,7 +240,7 @@
       "name": "Conditional Statement",
       "description": "Parse 'if cond { } else if cond { } else? { }' as statement. Else branch optional (uses () for ElseMissing type param). Add case to stmt dispatch.",
       "dependencies": ["expr-02", "expr-06", "stmt-08"],
-      "completed": false
+      "completed": true
     },
     {
       "id": "stmt-06",

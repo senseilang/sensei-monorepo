@@ -872,7 +872,7 @@ impl<'src, 'ast> Parser<'src, 'ast> {
         } else if self.check_noexpect(Token::Return) {
             self.parse_return_stmt()
         } else if self.check_noexpect(Token::If) {
-            todo!("stmt-05: conditional statement")
+            self.parse_cond_stmt()
         } else if self.check_noexpect(Token::LeftCurly) {
             self.parse_block_stmt()
         } else if self.check_noexpect(Token::Inline) || self.check_noexpect(Token::While) {
@@ -911,6 +911,37 @@ impl<'src, 'ast> Parser<'src, 'ast> {
         let body = self.parse_block()?;
         let while_stmt = WhileStmt { inline, condition, body };
         Ok(Statement::While(self.arena.alloc(while_stmt)))
+    }
+
+    pub fn parse_cond_stmt(&mut self) -> Result<Statement<'ast>, ParseError> {
+        self.expect(Token::If)?;
+
+        let condition = self.parse_postfix_expr()?;
+        let body = self.parse_block()?;
+        let r#if = IfBranch { condition, body };
+
+        let mut else_ifs = std::vec::Vec::new();
+
+        loop {
+            if !self.eat(Token::Else) {
+                let else_body = MaybeOr::Other(());
+                let else_ifs = self.arena.alloc_slice_fill_iter(else_ifs);
+                let cond = Conditional { r#if, else_ifs, else_body };
+                return Ok(Statement::Conditional(self.arena.alloc(cond)));
+            }
+
+            if self.eat(Token::If) {
+                let condition = self.parse_postfix_expr()?;
+                let body = self.parse_block()?;
+                else_ifs.push(IfBranch { condition, body });
+            } else {
+                let else_block = self.parse_block()?;
+                let else_body = MaybeOr::Just(else_block);
+                let else_ifs = self.arena.alloc_slice_fill_iter(else_ifs);
+                let cond = Conditional { r#if, else_ifs, else_body };
+                return Ok(Statement::Conditional(self.arena.alloc(cond)));
+            }
+        }
     }
 
     pub fn parse_comma_separated_until<T>(
@@ -2425,5 +2456,79 @@ mod tests {
         let result = parser.parse_stmt();
         assert!(result.is_err());
         assert!(parser.diagnostics.has_errors());
+    }
+
+    #[test]
+    fn test_parse_cond_stmt_simple_no_else() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("if true {}", &arena);
+
+        let result = parser.parse_stmt().unwrap();
+        assert!(matches!(result, Statement::Conditional(_)));
+        if let Statement::Conditional(cond) = result {
+            assert!(matches!(cond.r#if.condition, Expr::BoolLiteral(true)));
+            assert_eq!(cond.r#if.body.statements.len(), 0);
+            assert!(cond.r#if.body.last_expr.is_none());
+            assert_eq!(cond.else_ifs.len(), 0);
+            assert!(matches!(cond.else_body, MaybeOr::Other(())));
+        }
+        assert!(parser.at_eof());
+        assert!(!parser.diagnostics.has_errors());
+    }
+
+    #[test]
+    fn test_parse_cond_stmt_with_else() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("if cond { foo; } else { bar; }", &arena);
+
+        let result = parser.parse_stmt().unwrap();
+        assert!(matches!(result, Statement::Conditional(_)));
+        if let Statement::Conditional(cond) = result {
+            assert!(matches!(cond.r#if.condition, Expr::Ident(_)));
+            assert_eq!(cond.r#if.body.statements.len(), 1);
+            assert_eq!(cond.else_ifs.len(), 0);
+            assert!(matches!(cond.else_body, MaybeOr::Just(_)));
+            if let MaybeOr::Just(else_body) = &cond.else_body {
+                assert_eq!(else_body.statements.len(), 1);
+            }
+        }
+        assert!(parser.at_eof());
+        assert!(!parser.diagnostics.has_errors());
+    }
+
+    #[test]
+    fn test_parse_cond_stmt_with_else_if() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("if a {} else if b {} else if c {}", &arena);
+
+        let result = parser.parse_stmt().unwrap();
+        assert!(matches!(result, Statement::Conditional(_)));
+        if let Statement::Conditional(cond) = result {
+            assert!(matches!(cond.r#if.condition, Expr::Ident(_)));
+            assert_eq!(cond.else_ifs.len(), 2);
+            assert!(matches!(cond.else_body, MaybeOr::Other(())));
+        }
+        assert!(parser.at_eof());
+        assert!(!parser.diagnostics.has_errors());
+    }
+
+    #[test]
+    fn test_parse_cond_stmt_full_chain() {
+        let arena = Bump::new();
+        let mut parser = Parser::new("if a { x; } else if b { y; } else { z; }", &arena);
+
+        let result = parser.parse_stmt().unwrap();
+        assert!(matches!(result, Statement::Conditional(_)));
+        if let Statement::Conditional(cond) = result {
+            assert_eq!(cond.r#if.body.statements.len(), 1);
+            assert_eq!(cond.else_ifs.len(), 1);
+            assert_eq!(cond.else_ifs[0].body.statements.len(), 1);
+            assert!(matches!(cond.else_body, MaybeOr::Just(_)));
+            if let MaybeOr::Just(else_body) = &cond.else_body {
+                assert_eq!(else_body.statements.len(), 1);
+            }
+        }
+        assert!(parser.at_eof());
+        assert!(!parser.diagnostics.has_errors());
     }
 }
