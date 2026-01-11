@@ -24,6 +24,13 @@ Cargo workspace with crates in `crates/`:
 
 ## Coding Style
 
-- Comments are code that is never tested. Avoid unless necessary to explain
-  intricate code.
+**DRY Principle:** If you find yourself writing the same pattern 2-3 times, 
+extract it into a helper method. Common cases:
+- Checking multiple tokens with a semantic expected value → add a helper like 
+`check_with(tok, expected)` or `expect_any(toks, expected)`
+- Repeated error recovery sequences → add a recovery helper
+
+**Comments:** Do NOT add inline comments that describe what the code does 
+(e.g., "// Parse next element"). The code should be self-documenting. 
+Only add comments for non-obvious *why* decisions.
 
