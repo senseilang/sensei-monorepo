@@ -29,28 +29,6 @@ fn lex_skip_block_comment(lex: &mut LogosLexer<Token>) -> Result<Skip, ()> {
     Ok(Skip)
 }
 
-fn lex_string_literal(lex: &mut LogosLexer<Token>) -> Result<(), ()> {
-    let remainder = lex.remainder();
-    let mut chars = remainder.char_indices();
-
-    loop {
-        match chars.next() {
-            Some((_, '\\')) => {
-                // Skip the escaped character
-                if chars.next().is_none() {
-                    return Err(());
-                }
-            }
-            Some((pos, '"')) => {
-                lex.bump(pos + 1);
-                return Ok(());
-            }
-            Some(_) => {}
-            None => return Err(()),
-        }
-    }
-}
-
 #[derive(Logos, Debug, Clone, PartialEq, Eq, Copy)]
 #[logos(skip r"[ \t]+")]
 #[logos(skip(r"//", lex_skip_line_comment))]
@@ -163,16 +141,14 @@ pub enum Token {
     Run,
     #[token("struct")]
     Struct,
-    #[token("import")]
-    Import,
-    #[token("from")]
-    From,
-    #[token("as")]
-    As,
-    #[token("export")]
-    Export,
     #[token("return")]
     Return,
+    #[token("comptime")]
+    Comptime,
+    #[token("inline")]
+    Inline,
+    #[token("while")]
+    While,
     #[token("true")]
     True,
     #[token("false")]
@@ -187,8 +163,6 @@ pub enum Token {
     HexLiteral,
     #[regex("-?0b[01][01_]*")]
     BinLiteral,
-    #[token("\"", lex_string_literal)]
-    StringLiteral,
 
     Error,
 }
@@ -321,7 +295,7 @@ mod tests {
     #[test]
     fn test_keywords() {
         let source =
-            "if else fn let mut const init run struct import from as export return true false";
+            "if else fn let mut const init run struct return comptime inline while true false";
         let tokens = lex_tokens(source);
         assert_eq!(
             tokens,
@@ -335,11 +309,10 @@ mod tests {
                 Token::Init,
                 Token::Run,
                 Token::Struct,
-                Token::Import,
-                Token::From,
-                Token::As,
-                Token::Export,
                 Token::Return,
+                Token::Comptime,
+                Token::Inline,
+                Token::While,
                 Token::True,
                 Token::False,
             ]
@@ -430,29 +403,6 @@ mod tests {
         assert_eq!(tokens, vec![Token::BinLiteral, Token::BinLiteral,]);
     }
 
-    // ==================== String Literals ====================
-
-    #[test]
-    fn test_string_literal_simple() {
-        let source = r#""hello""#;
-        let tokens = lex_tokens(source);
-        assert_eq!(tokens, vec![Token::StringLiteral]);
-    }
-
-    #[test]
-    fn test_string_literal_empty() {
-        let source = r#""""#;
-        let tokens = lex_tokens(source);
-        assert_eq!(tokens, vec![Token::StringLiteral]);
-    }
-
-    #[test]
-    fn test_string_literal_with_escapes() {
-        let source = r#""line\nbreak" "quote\"here" "tab\there""#;
-        let tokens = lex_tokens(source);
-        assert_eq!(tokens, vec![Token::StringLiteral, Token::StringLiteral, Token::StringLiteral,]);
-    }
-
     #[test]
     fn test_line_comment_skipped() {
         let source = "// this is a comment\nfoo";
@@ -479,33 +429,6 @@ mod tests {
         let source = "/* outer /* inner */ outer */ bar";
         let tokens = lex_tokens(source);
         assert_eq!(tokens, vec![Token::Identifier]);
-    }
-
-    #[test]
-    fn test_string_literal_utf8_2byte() {
-        let source = r#""héllo""#;
-        let results = lex_all(source);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].0, Token::StringLiteral);
-        assert_eq!(&source[results[0].1.range()], "\"héllo\"");
-    }
-
-    #[test]
-    fn test_string_literal_utf8_3byte() {
-        let source = r#""日本語""#;
-        let results = lex_all(source);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].0, Token::StringLiteral);
-        assert_eq!(&source[results[0].1.range()], "\"日本語\"");
-    }
-
-    #[test]
-    fn test_string_literal_utf8_4byte() {
-        let source = r#""🦀""#;
-        let results = lex_all(source);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].0, Token::StringLiteral);
-        assert_eq!(&source[results[0].1.range()], "\"🦀\"");
     }
 
     #[test]
@@ -565,20 +488,6 @@ mod tests {
     }
 
     #[test]
-    fn test_unclosed_string_literal() {
-        let source = r#""no end"#;
-        let tokens = lex_tokens(source);
-        assert_eq!(tokens, vec![Token::Error, Token::Identifier, Token::Identifier]);
-    }
-
-    #[test]
-    fn test_string_escape_at_eof() {
-        let source = r#""escape\"#;
-        let tokens = lex_tokens(source);
-        assert_eq!(tokens, vec![Token::Error, Token::Identifier, Token::Error]);
-    }
-
-    #[test]
     fn test_malformed_binary_no_digits() {
         let source = "0b__";
         let tokens = lex_tokens(source);
@@ -616,14 +525,6 @@ mod tests {
     }
 
     #[test]
-    fn test_span_string_literal() {
-        let source = r#"  "hello world"  "#;
-        let results = lex_all(source);
-        assert_eq!(results.len(), 1);
-        assert_eq!(&source[results[0].1.range()], "\"hello world\"");
-    }
-
-    #[test]
     fn test_span_numeric_literals() {
         let source = "  123  0xFF  0b101  ";
         let results = lex_all(source);
@@ -642,14 +543,5 @@ mod tests {
         assert_eq!(&source[results[1].1.range()], "==");
         assert_eq!(&source[results[2].1.range()], "<=");
         assert_eq!(&source[results[3].1.range()], "<<");
-    }
-
-    #[test]
-    fn test_span_utf8_string_byte_length() {
-        let source = r#""日""#;
-        let results = lex_all(source);
-        assert_eq!(results.len(), 1);
-        let span = &results[0].1;
-        assert_eq!(span.end - span.start, 5);
     }
 }

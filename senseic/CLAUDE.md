@@ -2,10 +2,10 @@
 
 Neosen is a compiler frontend for the Sensei programming language.
 
-## Build
+## Commands
 
 ```bash
-cargo -p <crate name> test # Run during work on a specific crate for validation
+cargo test -p <crate name> # Run during work on a specific crate for validation
 cargo test # Run all tests at end of task
 
 # Run formatter & linter at the end of a task
@@ -17,10 +17,14 @@ cargo +nightly clippy --workspace --all --all-features --locked -- -D warnings
 
 Cargo workspace with crates in `crates/`:
 
-- **neosen-data**: Core data structures (`X32<M>` type-safe indices, `Span<T>` ranges)
-- **neosen-parser**: Lexer, parser, and AST definitions
+- **Docs** (`docs`): Documentation (Never commit temporary files related to
+  project management or tasks, any documentation outside of `docs` is usually
+  temporary stuff)
+- **neosen-data** (`crates/data`): Core data structures (`X32<M>` type-safe indices, `Span<T>` ranges)
+- **neosen-parser** (`crates/parser`): Lexer, parser, and AST definitions
   - `lexer.rs`: Token lexer using the `logos` crate
   - `ast.rs`: AST node definitions
+
 
 ## Coding Style
 

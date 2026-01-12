@@ -30,22 +30,13 @@ impl<'src, 'ast> Parser<'src, 'ast> {
         self.tokens.next().map(|(t, _)| t)
     }
 
-    fn parse_import(&mut self) -> Result<Import<'ast>, ParseError> {
-        Err(ParseError)
-    }
-
     fn parse_next_decl(&mut self) -> Result<Option<Declaration<'ast>>, ParseError> {
         let _arena = &mut self.arena;
         let _source = &mut self.source;
 
-        let Some(token) = self.peek_token() else { return Ok(None) };
+        let Some(_token) = self.peek_token() else { return Ok(None) };
 
-        let d = match token {
-            Token::Import => Declaration::Import(self.parse_import()?),
-            _ => todo!(),
-        };
-
-        Ok(Some(d))
+        todo!()
     }
 }
 

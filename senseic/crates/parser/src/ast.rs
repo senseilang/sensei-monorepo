@@ -20,21 +20,6 @@ pub enum Declaration<'ast> {
     Init(Block<'ast>),
     Run(Block<'ast>),
     ConstDef(ConstDef<'ast>),
-    PublicConstDef(ConstDef<'ast>),
-    Import(Import<'ast>),
-}
-
-#[derive(Debug)]
-pub struct Import<'ast> {
-    pub kind: ImportKind<'ast>,
-    pub path: AstBox<'ast, str>,
-}
-
-#[derive(Debug)]
-pub enum ImportKind<'ast> {
-    All,
-    As(IStr),
-    Selection(AstBox<'ast, [IStr]>),
 }
 
 #[derive(Debug)]
@@ -57,8 +42,15 @@ pub enum Statement<'ast> {
     Assign(AstBox<'ast, AssignStmt<'ast>>),
     Block(Block<'ast>),
     Conditional(AstBox<'ast, Conditional<'ast, ()>>),
+    While(AstBox<'ast, WhileStmt<'ast>>),
     Expr(Expr<'ast>),
-    ConstDef(AstBox<'ast, ConstDef<'ast>>),
+}
+
+#[derive(Debug)]
+pub struct WhileStmt<'ast> {
+    pub inline: bool,
+    pub condition: Expr<'ast>,
+    pub body: Block<'ast>,
 }
 
 #[derive(Debug)]
@@ -77,12 +69,6 @@ pub struct AssignStmt<'ast> {
 }
 
 #[derive(Debug)]
-pub enum AssignTarget<'ast> {
-    Ident(IStr),
-    Member(Member<'ast>),
-}
-
-#[derive(Debug)]
 pub struct IntLiteral<'ast> {
     pub positive: bool,
     pub num: FrozenBigUint<'ast>,
@@ -91,6 +77,11 @@ pub struct IntLiteral<'ast> {
 #[derive(Debug)]
 pub enum TypeExpr<'ast> {
     NamePath(NamePath<'ast>),
+    StructDef(StructDef<'ast>),
+}
+
+#[derive(Debug)]
+pub enum TypeDef<'ast> {
     FnDef(AstBox<'ast, FnDef<'ast>>),
     StructDef(StructDef<'ast>),
 }
@@ -98,12 +89,13 @@ pub enum TypeExpr<'ast> {
 #[derive(Debug)]
 pub struct FnDef<'ast> {
     pub params: AstBox<'ast, [ParamDef<'ast>]>,
-    pub result: TypeExpr<'ast>,
+    pub result: Option<TypeExpr<'ast>>,
     pub body: Block<'ast>,
 }
 
 #[derive(Debug)]
 pub struct ParamDef<'ast> {
+    pub comptime: bool,
     pub name: IStr,
     pub r#type: TypeExpr<'ast>,
 }
@@ -173,8 +165,9 @@ pub struct Member<'ast> {
 
 #[derive(Debug)]
 pub enum Expr<'ast> {
-    TypeExpr(TypeExpr<'ast>),
+    TypeDef(TypeDef<'ast>),
     Block(Block<'ast>),
+    Comptime(Block<'ast>),
     Binary(BinaryExpr<'ast>),
     IntLiteral(IntLiteral<'ast>),
     BoolLiteral(bool),
@@ -252,59 +245,4 @@ pub enum BinaryOp {
 #[derive(Debug)]
 pub enum AssignOp {
     Assign,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_binary_op_all_variants_exist() {
-        let ops = [
-            // Arithmetic
-            BinaryOp::AddWrap,
-            BinaryOp::AddChecked,
-            BinaryOp::SubWrap,
-            BinaryOp::SubChecked,
-            BinaryOp::MulWrap,
-            BinaryOp::MulChecked,
-            BinaryOp::DivToPos,
-            BinaryOp::DivToNeg,
-            BinaryOp::DivToZero,
-            BinaryOp::DivFromZero,
-            BinaryOp::Mod,
-            // Comparison
-            BinaryOp::LessThan,
-            BinaryOp::LessThanEquals,
-            BinaryOp::GreaterThan,
-            BinaryOp::GreaterThanEquals,
-            BinaryOp::EqualEqual,
-            BinaryOp::NotEquals,
-            // Logical
-            BinaryOp::LogicalAnd,
-            BinaryOp::LogicalOr,
-            // Bitwise
-            BinaryOp::BitAnd,
-            BinaryOp::BitOr,
-            BinaryOp::BitXor,
-            BinaryOp::ShiftLeft,
-            BinaryOp::ShiftRight,
-        ];
-        assert_eq!(ops.len(), 24);
-    }
-
-    #[test]
-    fn test_binary_op_equality() {
-        assert_eq!(BinaryOp::AddWrap, BinaryOp::AddWrap);
-        assert_ne!(BinaryOp::AddWrap, BinaryOp::SubWrap);
-        assert_eq!(BinaryOp::LogicalAnd, BinaryOp::LogicalAnd);
-        assert_ne!(BinaryOp::LogicalAnd, BinaryOp::LogicalOr);
-    }
-
-    #[test]
-    fn test_binary_op_copy() {
-        let op = BinaryOp::BitXor;
-        let op2 = op;
-        assert_eq!(op, op2);
-    }
 }
