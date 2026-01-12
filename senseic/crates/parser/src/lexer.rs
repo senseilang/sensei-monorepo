@@ -1,7 +1,7 @@
 use logos::{Lexer as LogosLexer, Logos, Skip};
 use neosen_data::Span;
 
-fn lex_skip_line_comment(lex: &mut LogosLexer<Token>) {
+fn lex_line_comment(lex: &mut LogosLexer<Token>) {
     let remainder = lex.remainder();
     let mut chars = remainder.char_indices().peekable();
     while chars.next_if(|&(_, c)| c != '\n').is_some() {}
@@ -9,7 +9,7 @@ fn lex_skip_line_comment(lex: &mut LogosLexer<Token>) {
     lex.bump(bytes_skipped);
 }
 
-fn lex_skip_block_comment(lex: &mut LogosLexer<Token>) -> Result<Skip, ()> {
+fn lex_block_comment(lex: &mut LogosLexer<Token>) -> Result<(), ()> {
     let remainder = lex.remainder();
     let mut chars = remainder.char_indices().peekable();
     let mut depth: u32 = 1;
@@ -26,13 +26,10 @@ fn lex_skip_block_comment(lex: &mut LogosLexer<Token>) -> Result<Skip, ()> {
     let bytes_skipped = chars.peek().map_or(remainder.len(), |&(pos, _)| pos);
     lex.bump(bytes_skipped);
 
-    Ok(Skip)
+    Ok(())
 }
 
 #[derive(Logos, Debug, Clone, PartialEq, Eq, Copy)]
-#[logos(skip r"[ \t]+")]
-#[logos(skip(r"//", lex_skip_line_comment))]
-#[logos(skip(r"/\*", lex_skip_block_comment))]
 pub enum Token {
     // Delimiters
     #[token(";")]
@@ -164,6 +161,14 @@ pub enum Token {
     #[regex("-?0b[01][01_]*")]
     BinLiteral,
 
+    #[regex("[ \t\n\r]+")]
+    Whitespace,
+    #[token(r"//", lex_line_comment)]
+    LineComment,
+    #[token(r"/*", lex_block_comment)]
+    BlockComment,
+
+    Eof,
     Error,
 }
 
