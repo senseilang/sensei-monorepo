@@ -2,6 +2,11 @@ use std::{hash::Hash, marker::PhantomData, num::NonZero};
 pub mod bigint;
 use inturn::InternerSymbol;
 
+/// Core crate assumption.
+const _USIZE_AT_LEAST_U32: () = const {
+    assert!(u32::BITS <= usize::BITS);
+};
+
 pub trait IncIterable: Eq + Ord {
     fn get_and_inc(&mut self) -> Self;
 }
@@ -120,9 +125,7 @@ impl<M> IncIterable for X32<M> {
     #[inline(always)]
     fn get_and_inc(&mut self) -> Self {
         let current = *self;
-        // The inner repr (`self.idx.get()`) is `x + 1`.
-        *self = Self::new(self.idx.get());
-        debug_assert!(self.get() == current.get() + 1);
+        *self = Self::new(self.get() + 1);
         current
     }
 }
@@ -135,7 +138,7 @@ impl IncIterable for u32 {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Span<T> {
     pub start: T,
     pub end: T,
@@ -145,12 +148,56 @@ impl<T> Span<T> {
     pub fn new(start: T, end: T) -> Self {
         Self { start, end }
     }
+
+    pub fn range(self) -> std::ops::Range<T> {
+        self.start..self.end
+    }
 }
 
 impl<T: IncIterable> Span<T> {
     pub fn iter(self) -> IncIterator<T> {
         let Self { start, end } = self;
         IncIterator { start, end }
+    }
+}
+
+pub trait ToUsize {
+    fn to_usize(self) -> usize;
+}
+
+impl<M> ToUsize for X32<M> {
+    fn to_usize(self) -> usize {
+        self.get() as usize
+    }
+}
+
+impl ToUsize for usize {
+    fn to_usize(self) -> usize {
+        self
+    }
+}
+
+impl ToUsize for u32 {
+    fn to_usize(self) -> usize {
+        self as usize
+    }
+}
+
+impl ToUsize for u16 {
+    fn to_usize(self) -> usize {
+        self as usize
+    }
+}
+
+impl ToUsize for u8 {
+    fn to_usize(self) -> usize {
+        self as usize
+    }
+}
+
+impl<T: ToUsize> Span<T> {
+    pub fn usize_range(self) -> std::ops::Range<usize> {
+        self.start.to_usize()..self.end.to_usize()
     }
 }
 
