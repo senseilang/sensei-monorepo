@@ -19,3 +19,6 @@ hashbrown = {version="0.16.0", features=["allocator-api2"]}
 sir-data = { git = "https://github.com/senseilang/sensei-ir.git" }
 smallvec = "1.15.1"
 inturn = "0.1.2"
+
+# Testing
+pretty_assertions = "1.4.1"

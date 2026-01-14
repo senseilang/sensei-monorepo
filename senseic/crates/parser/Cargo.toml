@@ -15,3 +15,6 @@ tree-sitter-sensei = { path = "../../../sensei-tree-sitter/" }
 inturn.workspace = true
 smallvec.workspace = true
 logos = "0.16.0"
+
+[dev-dependencies]
+pretty_assertions.workspace = true

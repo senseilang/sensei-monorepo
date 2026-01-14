@@ -16,14 +16,49 @@ pub struct Node {
     pub first_child: Option<NodeIdx>,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NodeKind {
     // Declarations
     ConstDecl,
     InitBlock,
     RunBlock,
 
+    // Statements
     Block,
+    LetStmt,
+    ReturnStmt,
+    AssignStmt,
+    ExprStmt,
+    WhileStmt,
+    CondStmt,
+
+    // Expressions
+    CondExpr,
+    ComptimeExpr,
+    BinaryExpr,
+    UnaryExpr,
+    ParenExpr,
+    CallExpr,
+    MemberExpr,
+    FnDef,
+    StructDef,
+    StructLit,
+
+    // Atoms
+    Literal,
+    Ident,
+    NamePath,
+
+    // Misc
+    ParamDef,
+    FieldDef,
+    ArgList,
+    ParamList,
+    FieldList,
+    ElseBranch,
+
+    // Errors
+    Error,
 }
 
 #[derive(Debug, Clone)]
