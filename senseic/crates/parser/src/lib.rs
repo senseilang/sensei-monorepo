@@ -1,4 +1,5 @@
 pub mod ast;
+mod cst;
 pub mod diagnostics;
 mod display;
 pub mod lexer;
