@@ -105,13 +105,13 @@ where
     }
 
     fn advance(&mut self) -> TokenItem {
-        let item = self.tokens.next().expect("advancing past EOF");
         self.expected.clear();
+        let item = self.tokens.next().expect("advancing past EOF");
 
         let (token, ti, src_span) = item;
-        self.last_token_idx = ti;
-        self.last_src_span = src_span;
         if token.is_error() {
+            self.last_token_idx = ti;
+            self.last_src_span = src_span;
             self.diagnostics.emit_lexer_error(token, ti, src_span);
         }
 
@@ -202,17 +202,10 @@ where
     }
 
     fn skip_trivia(&mut self) {
-        while let Some((token, ti, src_span)) = self.current() {
-            if token.is_trivia() {
-                self.advance();
-                continue;
-            }
-            if token.is_error() {
-                self.diagnostics.emit_lexer_error(token, ti, src_span);
-                self.advance();
-                continue;
-            }
-            break;
+        while let Some(token) = self.current_token()
+            && (token.is_trivia() || token.is_error())
+        {
+            self.advance();
         }
     }
 
@@ -544,7 +537,7 @@ where
     fn parse_member(&mut self, base: NodeIdx) -> NodeIdx {
         let node = self.alloc_node(NodeKind::MemberExpr);
         let start = self.nodes[base.idx()].tokens.start;
-        debug_assert!(self.eat(Token::Dot), "invoked without '.'");
+        assert!(self.eat(Token::Dot), "invoked without '.'");
 
         let mut last = None;
         self.link_child(node, base, &mut last);
