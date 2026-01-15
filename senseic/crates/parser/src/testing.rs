@@ -228,7 +228,7 @@ fn format_unexpected_token(
     };
 
     format!(
-        "error: unexpected token {}, expected {}\n  --> line {}:{}\n   |\n{:>3}| {}\n   | {}",
+        "error: unexpected {}, expected {}\n  --> line {}:{}\n   |\n{:>3}| {}\n   | {}",
         token_name(found),
         expected_str,
         line,

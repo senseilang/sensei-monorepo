@@ -1,4 +1,6 @@
-const my_func = fn () -> struct { x: u256, y: u256 } {
+const MyStruct = struct { x: u256, y: u256 };
+
+const my_func = fn () -> MyStruct {
 
 };
 

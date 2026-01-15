@@ -742,8 +742,12 @@ where
 
         let mut last = None;
 
+        self.expect(Token::LeftRound);
+        self.skip_trivia();
         let cond = self.parse_expr().unwrap_or_else(|| self.advance_with_error());
         self.link_child(node, cond, &mut last);
+        self.skip_trivia();
+        self.expect(Token::RightRound);
 
         self.skip_trivia();
         let then_block = self.parse_block();
@@ -763,9 +767,13 @@ where
             if self.eat(Token::If) {
                 // else if
                 self.skip_trivia();
+                self.expect(Token::LeftRound);
+                self.skip_trivia();
                 let else_cond = self.parse_expr().unwrap_or_else(|| self.advance_with_error());
                 let mut else_last = None;
                 self.link_child(else_node, else_cond, &mut else_last);
+                self.skip_trivia();
+                self.expect(Token::RightRound);
 
                 self.skip_trivia();
                 let else_block = self.parse_block();
@@ -887,8 +895,12 @@ where
 
         let mut last = None;
 
+        self.expect(Token::LeftRound);
+        self.skip_trivia();
         let cond = self.parse_expr().unwrap_or_else(|| self.advance_with_error());
         self.link_child(node, cond, &mut last);
+        self.skip_trivia();
+        self.expect(Token::RightRound);
 
         self.skip_trivia();
         let body = self.parse_block();
@@ -906,8 +918,12 @@ where
 
         let mut last = None;
 
+        self.expect(Token::LeftRound);
+        self.skip_trivia();
         let cond = self.parse_expr().unwrap_or_else(|| self.advance_with_error());
         self.link_child(node, cond, &mut last);
+        self.skip_trivia();
+        self.expect(Token::RightRound);
 
         self.skip_trivia();
         let then_block = self.parse_block();
@@ -930,9 +946,13 @@ where
                 self.advance(); // consume 'if'
 
                 self.skip_trivia();
+                self.expect(Token::LeftRound);
+                self.skip_trivia();
                 let else_cond = self.parse_expr().unwrap_or_else(|| self.advance_with_error());
                 let mut else_last = None;
                 self.link_child(else_node, else_cond, &mut else_last);
+                self.skip_trivia();
+                self.expect(Token::RightRound);
 
                 self.skip_trivia();
                 let else_block = self.parse_block();
@@ -1001,33 +1021,34 @@ where
         let start = self.current_token_idx();
 
         self.skip_trivia();
-        if !self.expect(Token::LeftCurly) {
-            self.finalize_node(node, start);
-            return node;
-        }
+        let has_open = self.expect(Token::LeftCurly);
 
         let mut last = None;
 
-        loop {
-            self.skip_trivia();
-            if self.at(Token::RightCurly) || self.eof() {
-                break;
-            }
-
-            if let Some(stmt) = self.parse_stmt() {
-                self.link_child(node, stmt, &mut last);
-            } else {
-                // Try to recover
-                if self.at_any(BLOCK_RECOVERY) {
+        if has_open {
+            loop {
+                self.skip_trivia();
+                if self.at(Token::RightCurly) || self.eof() {
                     break;
                 }
-                let err = self.advance_with_error();
-                self.link_child(node, err, &mut last);
-            }
-        }
 
-        self.skip_trivia();
-        self.expect(Token::RightCurly);
+                if let Some(stmt) = self.parse_stmt() {
+                    self.link_child(node, stmt, &mut last);
+                } else {
+                    if self.at_any(BLOCK_RECOVERY) {
+                        break;
+                    }
+                    let err = self.advance_with_error();
+                    self.link_child(node, err, &mut last);
+                }
+            }
+
+            self.skip_trivia();
+            self.expect(Token::RightCurly);
+        } else {
+            self.skip_trivia();
+            self.eat(Token::RightCurly);
+        }
 
         self.finalize_node(node, start);
         node
@@ -1155,7 +1176,7 @@ mod tests {
         assert_parser_errors(
             r#"const x =
             init {
-                if false {
+                if (false) {
                     awesome = a == 5;
                 }
             }
@@ -1171,19 +1192,70 @@ mod tests {
     }
 
     #[test]
+    fn test_unclosed_if() {
+        assert_parser_errors(
+            r#"run {
+            if (wow) {
+                my_awesome_statement(3 + a, nice);
+
+
+
+        }"#,
+            &["
+                error: missing `}`
+                  --> line 7:9
+                   |
+                  7|         }
+                   |         ^
+            "],
+        );
+    }
+
+    #[test]
+    fn test_missing_open_run_block() {
+        assert_parser_errors(
+            r#"
+            run }
+            "#,
+            &["
+                error: missing `{`
+                  --> line 2:17
+                   |
+                  2|             run }
+                   |                 ^
+            "],
+        );
+    }
+    #[test]
+    fn test_missing_close_run_block() {
+        assert_parser_errors(
+            r#"
+            run {
+            "#,
+            &["
+                error: missing `}`
+                  --> line 2:18
+                   |
+                  2|             run {
+                   |                  ^
+            "],
+        );
+    }
+
+    #[test]
     fn test_unexpected_token_at_top_level() {
         assert_parser_errors(
             "5;",
             &[
                 "
-                    error: unexpected token decimal literal, expected one of `init`, `run`, `const`
+                    error: unexpected decimal literal, expected one of `init`, `run`, `const`
                       --> line 1:1
                        |
                       1| 5;
                        | ^
                 ",
                 "
-                    error: unexpected token `;`, expected one of `init`, `run`, `const`
+                    error: unexpected `;`, expected one of `init`, `run`, `const`
                       --> line 1:2
                        |
                       1| 5;
