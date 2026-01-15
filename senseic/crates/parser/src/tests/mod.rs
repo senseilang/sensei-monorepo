@@ -6,10 +6,12 @@ use crate::{
 };
 use bumpalo::Bump;
 
+mod parser;
+
 #[derive(Debug, Clone)]
 pub enum ParserError {
     LexerError { token: Token, span: SourceSpan },
-    UnexpectedToken { found: Token, expected: Vec<Token>, span: SourceSpan },
+    UnexpectedToken { found: Option<Token>, expected: Vec<Token>, span: SourceSpan },
     MissingToken { expected: Token, at_span: SourceSpan },
     UnclosedDelimiter { opener: Token, open_span: SourceSpan, found_span: SourceSpan },
 }
@@ -24,7 +26,12 @@ impl DiagnosticsContext for ErrorCollector {
         self.errors.push(ParserError::LexerError { token, span: src_span });
     }
 
-    fn emit_unexpected_token(&mut self, found: Token, expected: &[Token], src_span: SourceSpan) {
+    fn emit_unexpected_token(
+        &mut self,
+        found: Option<Token>,
+        expected: &[Token],
+        src_span: SourceSpan,
+    ) {
         self.errors.push(ParserError::UnexpectedToken {
             found,
             expected: expected.to_vec(),
@@ -208,7 +215,7 @@ fn format_lexer_error(
 }
 
 fn format_unexpected_token(
-    found: Token,
+    found: Option<Token>,
     expected: &[Token],
     span: SourceSpan,
     source: &str,
@@ -229,7 +236,7 @@ fn format_unexpected_token(
 
     format!(
         "error: unexpected {}, expected {}\n  --> line {}:{}\n   |\n{:>3}| {}\n   | {}",
-        token_name(found),
+        found.map_or("EOF", token_name),
         expected_str,
         line,
         col_start,

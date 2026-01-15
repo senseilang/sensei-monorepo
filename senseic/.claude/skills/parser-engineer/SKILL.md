@@ -81,3 +81,34 @@ The CST uses a linked-list tree (`first_child` → `next_sibling` chains) rather
 - Valid prefixes are always captured
 
 The parser should produce a useful tree even from broken code, localizing errors to where they occur.
+
+## Robust Expected Token Set Tracking
+
+Use `check` + `emit_unexpected` instead of `emit_missing_token`. Each `check` call that fails adds to the expected token set, so chained checks automatically produce descriptive errors.
+
+**Anti-pattern:**
+```rust
+if let Some(name) = self.parse_ident() {
+    // use name
+} else {
+    self.diagnostics.emit_missing_token(Token::Identifier, span);
+}
+```
+
+This only reports "missing Identifier"—no context about what was found.
+
+**Correct pattern:** Chain `check` calls to build the expected set:
+```rust
+self.clear_expected();
+if self.check(Token::Colon) {
+    // parse type annotation...
+} else if self.check(Token::Equals) {
+    // parse value...
+} else {
+    self.emit_unexpected();  // "found `run`, expected `:` or `=`"
+}
+```
+
+For `const x run`, this produces "unexpected `run`, expected `:` or `=`" because both `check` calls added to the expected set before `emit_unexpected` was called.
+
+Use `expect` if the token is required.

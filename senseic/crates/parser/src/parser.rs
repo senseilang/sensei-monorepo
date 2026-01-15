@@ -104,19 +104,17 @@ where
         self.current().map_or(self.last_src_span, |(_, _, span)| span)
     }
 
-    fn advance(&mut self) -> Option<TokenItem> {
-        let item = self.tokens.next();
+    fn advance(&mut self) -> TokenItem {
+        let item = self.tokens.next().expect("advancing past EOF");
+        self.expected.clear();
 
-        if let Some((token, ti, src_span)) = item {
-            self.last_token_idx = ti;
-            self.last_src_span = src_span;
-
-            if token.is_error() {
-                self.diagnostics.emit_lexer_error(token, ti, src_span);
-            }
+        let (token, ti, src_span) = item;
+        self.last_token_idx = ti;
+        self.last_src_span = src_span;
+        if token.is_error() {
+            self.diagnostics.emit_lexer_error(token, ti, src_span);
         }
 
-        debug_assert!(item.is_some(), "no advance");
         item
     }
 
@@ -132,28 +130,24 @@ where
         if self.at(token) {
             return true;
         }
-        self.expected.push(token);
+        if !self.expected.contains(&token) {
+            self.expected.push(token);
+        }
         false
     }
 
-    fn clear_expected(&mut self) {
-        self.expected.clear();
-    }
-
     fn eat(&mut self, token: Token) -> bool {
-        let present = self.check(token);
-        if present {
+        if self.check(token) {
             self.advance();
-            self.clear_expected();
+            return true;
         }
-        present
+        false
     }
 
     fn emit_unexpected(&mut self) {
-        let found = self.current_token().unwrap_or(Token::InvalidCharError);
+        let found = self.current_token();
         let span = self.current_src_span();
         self.diagnostics.emit_unexpected_token(found, &self.expected, span);
-        self.clear_expected();
     }
 
     fn eof(&mut self) -> bool {
@@ -164,9 +158,17 @@ where
         if self.eat(token) {
             return true;
         }
-        let span = self.current_src_span();
-        self.diagnostics.emit_missing_token(token, span);
+        self.emit_unexpected();
         false
+    }
+
+    fn expect_ident(&mut self) -> Option<NodeIdx> {
+        if self.check(Token::Identifier) {
+            self.parse_ident()
+        } else {
+            self.emit_unexpected();
+            None
+        }
     }
 
     fn skip_until(&mut self, stop: &[Token]) {
@@ -542,19 +544,14 @@ where
     fn parse_member(&mut self, base: NodeIdx) -> NodeIdx {
         let node = self.alloc_node(NodeKind::MemberExpr);
         let start = self.nodes[base.idx()].tokens.start;
-        self.advance(); // consume '.'
+        debug_assert!(self.eat(Token::Dot), "invoked without '.'");
 
         let mut last = None;
         self.link_child(node, base, &mut last);
 
         self.skip_trivia();
-        if let Some(ident) = self.parse_ident() {
+        if let Some(ident) = self.expect_ident() {
             self.link_child(node, ident, &mut last);
-        } else {
-            {
-                let span = self.current_src_span();
-                self.diagnostics.emit_missing_token(Token::Identifier, span);
-            }
         }
 
         self.finalize_node(node, start);
@@ -833,13 +830,8 @@ where
         self.skip_trivia();
 
         // Name
-        if let Some(name) = self.parse_ident() {
+        if let Some(name) = self.expect_ident() {
             self.link_child(node, name, &mut last);
-        } else {
-            {
-                let span = self.current_src_span();
-                self.diagnostics.emit_missing_token(Token::Identifier, span);
-            }
         }
 
         // Optional type annotation
@@ -852,8 +844,20 @@ where
 
         // = value
         self.skip_trivia();
-        self.expect(Token::Equals);
+        if !self.eat(Token::Equals) {
+            self.emit_unexpected();
+            if self.at_any(BLOCK_RECOVERY) {
+                self.finalize_node(node, start);
+                return node;
+            }
+        }
+        let after_eq_span = self.current_src_span();
         self.skip_trivia();
+        if self.at_any(BLOCK_RECOVERY) {
+            self.diagnostics.emit_missing_token(Token::Semicolon, after_eq_span);
+            self.finalize_node(node, start);
+            return node;
+        }
         let value = self.parse_expr_or_error(BLOCK_RECOVERY);
         self.link_child(node, value, &mut last);
 
@@ -1063,7 +1067,6 @@ where
                 break;
             }
 
-            self.clear_expected();
             if self.check(Token::Init) {
                 self.parse_init_block();
             } else if self.check(Token::Run) {
@@ -1114,11 +1117,8 @@ where
         let mut last = None;
 
         // Name
-        if let Some(name) = self.parse_ident() {
+        if let Some(name) = self.expect_ident() {
             self.link_child(node, name, &mut last);
-        } else {
-            let span = self.current_src_span();
-            self.diagnostics.emit_missing_token(Token::Identifier, span);
         }
 
         // Optional type annotation
@@ -1131,7 +1131,13 @@ where
 
         // = value
         self.skip_trivia();
-        self.expect(Token::Equals);
+        if !self.expect(Token::Equals) {
+            if self.at_any(BLOCK_RECOVERY) {
+                self.finalize_node(node, start);
+                return;
+            }
+        }
+
         let after_eq_span = self.current_src_span();
         self.skip_trivia();
         if self.at_any(BLOCK_RECOVERY) {
@@ -1165,103 +1171,4 @@ pub fn parse<'ast, 'src, D: DiagnosticsContext>(
     parser.parse_program();
 
     ConcreteSyntaxTree { nodes: parser.nodes }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::testing::assert_parser_errors;
-
-    #[test]
-    fn test_missing_semicolon() {
-        assert_parser_errors(
-            r#"const x =
-            init {
-                if (false) {
-                    awesome = a == 5;
-                }
-            }
-            "#,
-            &["
-                error: missing `;`
-                  --> line 1:10
-                   |
-                  1| const x =
-                   |          ^
-            "],
-        );
-    }
-
-    #[test]
-    fn test_unclosed_if() {
-        assert_parser_errors(
-            r#"run {
-            if (wow) {
-                my_awesome_statement(3 + a, nice);
-
-
-
-        }"#,
-            &["
-                error: missing `}`
-                  --> line 7:9
-                   |
-                  7|         }
-                   |         ^
-            "],
-        );
-    }
-
-    #[test]
-    fn test_missing_open_run_block() {
-        assert_parser_errors(
-            r#"
-            run }
-            "#,
-            &["
-                error: missing `{`
-                  --> line 2:17
-                   |
-                  2|             run }
-                   |                 ^
-            "],
-        );
-    }
-    #[test]
-    fn test_missing_close_run_block() {
-        assert_parser_errors(
-            r#"
-            run {
-            "#,
-            &["
-                error: missing `}`
-                  --> line 2:18
-                   |
-                  2|             run {
-                   |                  ^
-            "],
-        );
-    }
-
-    #[test]
-    fn test_unexpected_token_at_top_level() {
-        assert_parser_errors(
-            "5;",
-            &[
-                "
-                    error: unexpected decimal literal, expected one of `init`, `run`, `const`
-                      --> line 1:1
-                       |
-                      1| 5;
-                       | ^
-                ",
-                "
-                    error: unexpected `;`, expected one of `init`, `run`, `const`
-                      --> line 1:2
-                       |
-                      1| 5;
-                       |  ^
-                ",
-            ],
-        );
-    }
 }

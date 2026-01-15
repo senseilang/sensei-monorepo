@@ -7,7 +7,7 @@ pub mod parser;
 pub mod const_print;
 
 #[cfg(test)]
-pub mod testing;
+pub mod tests;
 
 pub use ast::StringInterner;
 
