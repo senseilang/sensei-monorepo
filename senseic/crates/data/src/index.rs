@@ -59,6 +59,11 @@ impl<M> X32<M> {
         // Safety: By definition `>= 1`.
         unsafe { self.idx.get().unchecked_sub(1) }
     }
+
+    /// Returns `self + 1`.
+    pub fn next(self) -> Self {
+        Self::new(self.get().wrapping_add(1))
+    }
 }
 
 const _OPTION_X32_SMALL: () = const {
