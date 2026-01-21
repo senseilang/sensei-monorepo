@@ -116,7 +116,7 @@ pub enum Token {
     #[token("==")]
     DoubleEquals,
     #[token("!=")]
-    NotEquals,
+    BangEquals,
     #[token("<")]
     LessThan,
     #[token(">")]
@@ -128,7 +128,7 @@ pub enum Token {
 
     // Logical
     #[token("!")]
-    Not,
+    Bang,
     #[token("&&")]
     AmperAmper,
     #[token("||")]
@@ -255,14 +255,14 @@ impl Token {
             Token::SlashGreater => "`/>`",
             Token::Percent => "`%`",
             Token::DoubleEquals => "`==`",
-            Token::NotEquals => "`!=`",
+            Token::BangEquals => "`!=`",
             Token::LessThan => "`<`",
             Token::GreaterThan => "`>`",
             Token::LessEquals => "`<=`",
             Token::GreaterEquals => "`>=`",
             Token::AmperAmper => "`&&`",
             Token::PipePipe => "`||`",
-            Token::Not => "`!`",
+            Token::Bang => "`!`",
             Token::Ampersand => "`&`",
             Token::Pipe => "`|`",
             Token::Caret => "`^`",
@@ -378,14 +378,14 @@ mod tests {
         assert_eq!(lex_all("/>"), vec![(Token::SlashGreater, 0..2, "/>")]);
         assert_eq!(lex_all("%"), vec![(Token::Percent, 0..1, "%")]);
         assert_eq!(lex_all("=="), vec![(Token::DoubleEquals, 0..2, "==")]);
-        assert_eq!(lex_all("!="), vec![(Token::NotEquals, 0..2, "!=")]);
+        assert_eq!(lex_all("!="), vec![(Token::BangEquals, 0..2, "!=")]);
         assert_eq!(lex_all("<"), vec![(Token::LessThan, 0..1, "<")]);
         assert_eq!(lex_all(">"), vec![(Token::GreaterThan, 0..1, ">")]);
         assert_eq!(lex_all("<="), vec![(Token::LessEquals, 0..2, "<=")]);
         assert_eq!(lex_all(">="), vec![(Token::GreaterEquals, 0..2, ">=")]);
         assert_eq!(lex_all("and"), vec![(Token::And, 0..2, "and")]);
         assert_eq!(lex_all("or"), vec![(Token::Or, 0..2, "or")]);
-        assert_eq!(lex_all("!"), vec![(Token::Not, 0..1, "!")]);
+        assert_eq!(lex_all("!"), vec![(Token::Bang, 0..1, "!")]);
         assert_eq!(lex_all("&"), vec![(Token::Ampersand, 0..1, "&")]);
         assert_eq!(lex_all("|"), vec![(Token::Pipe, 0..1, "|")]);
         assert_eq!(lex_all("^"), vec![(Token::Caret, 0..1, "^")]);

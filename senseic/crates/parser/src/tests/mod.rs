@@ -65,7 +65,12 @@ pub fn assert_parses_to_cst_no_errors(source: &str, expected: &str) {
         );
     }
 
-    let actual = format!("{}", DisplayCST::new(cst, &source));
+    let actual = format!("{}", DisplayCST::new(&cst, &source));
 
-    pretty_assertions::assert_str_eq!(actual.trim(), expected.trim());
+    pretty_assertions::assert_str_eq!(
+        actual.trim(),
+        expected.trim(),
+        "Full tree:\n{}",
+        DisplayCST::new(&cst, &source).show_node_index(true).show_token_spans(true)
+    );
 }

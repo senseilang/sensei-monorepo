@@ -21,13 +21,13 @@ pub struct Node {
 const _ASSERT_NODE_SIZE: () = const_assert_eq(std::mem::size_of::<Node>(), 20);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BinaryKind {
+pub enum BinaryOp {
     // Logical
     Or,
     And,
     // Comparison
     DoubleEquals,
-    NotEquals,
+    BangEquals,
     LessThan,
     GreaterThan,
     LessEquals,
@@ -55,9 +55,9 @@ pub enum BinaryKind {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum UnaryKind {
+pub enum UnaryOp {
     Minus,
-    Not,
+    Bang,
     Tilde,
 }
 
@@ -79,12 +79,10 @@ pub enum NodeKind {
     AssignStmt,
     ExprStmt,
     WhileStmt,
-    CondStmt,
 
     // Expressions
-    CondExpr,
-    BinaryExpr(BinaryKind),
-    UnaryExpr(UnaryKind),
+    BinaryExpr(BinaryOp),
+    UnaryExpr(UnaryOp),
     ParenExpr,
     CallExpr,
     MemberExpr,
@@ -92,8 +90,13 @@ pub enum NodeKind {
     StructDef,
     StructLit,
 
+    // Conditional
+    ConditionalNoElse,
+    ConditionalWithElse,
+    ElseIfBranchList,
+    ElseIfBranch,
+
     // Atoms
-    Operator,
     LiteralExpr,
     Identifier,
 
@@ -103,10 +106,31 @@ pub enum NodeKind {
     ArgList,
     ParamList,
     FieldList,
-    ElseBranch,
+    StatementsList,
 
     // Errors
     Error,
+}
+
+impl NodeKind {
+    pub fn expr_requires_semi_as_stmt(&self) -> Option<bool> {
+        match self {
+            Self::ComptimeBlock | Self::Block | Self::ConditionalWithElse | Self::Error => {
+                Some(false)
+            }
+            Self::BinaryExpr(_)
+            | Self::UnaryExpr(_)
+            | Self::ParenExpr
+            | Self::CallExpr
+            | Self::MemberExpr
+            | Self::FnDef
+            | Self::StructDef
+            | Self::StructLit
+            | Self::LiteralExpr
+            | Self::Identifier => Some(true),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -124,5 +148,54 @@ impl<'ast> ConcreteSyntaxTree<'ast> {
             next_child = self.nodes[child].next_sibling;
             Some(child)
         })
+    }
+
+    pub fn assert_no_intersecting_token_spans_node(&self, parent: NodeIdx) {
+        let parent_span = self.nodes[parent].tokens;
+        let mut children = self.iter_children(parent).map(|child| {
+            self.assert_no_intersecting_token_spans_node(child);
+            child
+        });
+        if let Some(first_child) = children.next() {
+            let first_child_span = self.nodes[first_child].tokens;
+            let mut last = (first_child, first_child_span);
+            assert!(
+                parent_span.start <= last.1.start,
+                "first child #{} span {} intersects parent #{} {}",
+                first_child.get(),
+                last.1,
+                parent.get(),
+                parent_span
+            );
+
+            for child in children {
+                let (last_child, last_span) = last;
+                let child_span = self.nodes[child].tokens;
+                assert!(
+                    last_span.end <= child_span.start,
+                    "child #{} span {} intersects with previous sibling #{} {}",
+                    child.get(),
+                    child_span,
+                    last_child.get(),
+                    last_span
+                );
+                last = (child, child_span);
+            }
+
+            let (last_child, last_span) = last;
+
+            assert!(
+                last_span.end <= parent_span.end,
+                "last child #{} span {} intersects with parent #{} span {}",
+                last_child.get(),
+                last_span,
+                parent.get(),
+                parent_span
+            );
+        }
+    }
+
+    pub fn assert_no_intersecting_token_spans(&self) {
+        self.assert_no_intersecting_token_spans_node(Self::FILE_IDX);
     }
 }

@@ -27,6 +27,12 @@ pub struct Span<T> {
     pub end: T,
 }
 
+impl<M> std::fmt::Display for Span<X32<M>> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}..{}", self.start.get(), self.end.get())
+    }
+}
+
 impl<T> Span<T> {
     pub const fn new(start: T, end: T) -> Self {
         Self { start, end }

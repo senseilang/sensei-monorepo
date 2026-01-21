@@ -33,10 +33,7 @@ fn main() {
         }
     }
 
-    let mut display = DisplayCST::new(cst, &source);
-    if show_lines {
-        display = display.show_line()
-    }
+    let display = DisplayCST::new(&cst, &source).show_line(show_lines);
 
     println!("{}", display);
 }

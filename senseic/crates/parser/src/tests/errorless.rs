@@ -290,7 +290,7 @@ fn test_unary_not() {
                     "x"
                 " "
                 "="
-                UnaryExpr(Not)
+                UnaryExpr(Bang)
                     " "
                     "!"
                     Identifier
@@ -318,6 +318,31 @@ fn test_unary_tilde() {
                     "~"
                     Identifier
                         "a"
+                ";"
+        "#,
+    );
+}
+
+#[test]
+fn test_unary_nested() {
+    assert_parses_to_cst_no_errors_dedented(
+        "const x = -~a;",
+        r#"
+        File
+            ConstDecl
+                "const"
+                " "
+                Identifier
+                    "x"
+                " "
+                "="
+                UnaryExpr(Minus)
+                    " "
+                    "-"
+                    UnaryExpr(Tilde)
+                        "~"
+                        Identifier
+                            "a"
                 ";"
         "#,
     );
@@ -421,7 +446,7 @@ fn test_binary_not_equals() {
                     "x"
                 " "
                 "="
-                BinaryExpr(NotEquals)
+                BinaryExpr(BangEquals)
                     " "
                     Identifier
                         "a"
@@ -572,7 +597,7 @@ fn test_binary_precedence_cmp_and() {
                         " "
                         Identifier
                             "b"
-                    " "
+                        " "
                     "and"
                     BinaryExpr(GreaterThan)
                         " "
@@ -1304,58 +1329,51 @@ fn test_struct_lit_trailing_comma() {
 // =============================================================================
 
 #[test]
-fn test_block_one_stmt() {
+fn test_block_atom_expr_stmt() {
     assert_parses_to_cst_no_errors_dedented(
-        "init { foo(); }",
+        "init { 34; }",
         r#"
         File
             InitBlock
                 "init"
                 " "
                 "{"
-                " "
-                ExprStmt
-                    CallExpr
-                        Identifier
-                            "foo"
-                        "("
-                        ArgList
-                        ")"
-                    ";"
-                " "
+                StatementsList
+                    " "
+                    ExprStmt
+                        LiteralExpr
+                            "34"
+                        ";"
+                    " "
                 "}"
         "#,
     );
 }
 
 #[test]
-fn test_block_two_stmts() {
+fn test_block_end_expr() {
     assert_parses_to_cst_no_errors_dedented(
-        "init { foo(); bar(); }",
+        "init { 34; 35; bob }",
         r#"
         File
             InitBlock
                 "init"
                 " "
                 "{"
-                " "
-                ExprStmt
-                    CallExpr
-                        Identifier
-                            "foo"
-                        "("
-                        ArgList
-                        ")"
-                    ";"
-                " "
-                ExprStmt
-                    CallExpr
-                        Identifier
-                            "bar"
-                        "("
-                        ArgList
-                        ")"
-                    ";"
+                StatementsList
+                    " "
+                    ExprStmt
+                        LiteralExpr
+                            "34"
+                        ";"
+                    " "
+                    ExprStmt
+                        LiteralExpr
+                            "35"
+                        ";"
+                    " "
+                Identifier
+                    "bob"
                 " "
                 "}"
         "#,
@@ -1734,6 +1752,7 @@ fn test_empty_init_run() {
                 "init"
                 " "
                 "{"
+                StatementsList
                 "}"
             "\n"
             "/* something /* very nice */ */"
@@ -1742,6 +1761,7 @@ fn test_empty_init_run() {
                 "run"
                 " "
                 "{"
+                StatementsList
                 "}"
         "#,
     );
