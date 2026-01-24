@@ -239,7 +239,7 @@ where
         }
     }
 
-    fn alloc_single_token_node(&mut self, kind: NodeKind) -> NodeIdx {
+    fn alloc_last_token_as_node(&mut self, kind: NodeKind) -> NodeIdx {
         let node = self.alloc_node(kind);
         self.finalize_node(node, self.current_token_idx - 1)
     }
@@ -303,13 +303,13 @@ where
 
     // ========================== EXPRESSION PARSING ==========================
 
-    fn try_parse_conditional(&mut self, mode: ParseConditionalMode) -> Option<NodeIdx> {
+    fn try_parse_conditional(&mut self) -> Option<NodeIdx> {
         let condition_chain_start = self.current_token_idx;
         if !self.eat(Token::If) {
             return None;
         }
 
-        let mut conditional = self.alloc_node(NodeKind::ConditionalNoElse);
+        let mut conditional = self.alloc_node(NodeKind::If);
 
         let if_condition = self.parse_expr(ParseExprMode::CondExpr);
         self.push_child(&mut conditional, if_condition);
@@ -317,16 +317,18 @@ where
         self.push_child(&mut conditional, if_body);
 
         let else_ifs_start = self.current_token_idx;
-        let else_ifs = self.alloc_node(NodeKind::ElseIfBranchList);
+        let mut else_ifs = self.alloc_node(NodeKind::ElseIfBranchList);
 
-        let mut found_else = false;
+        let mut r#else = None;
         while self.check(Token::Else) {
+            // More robust way to get token offset at the `Else` token than `eat; current-1`.
             let branch_start = self.current_token_idx;
             assert!(self.expect(Token::Else));
 
             if !self.eat(Token::If) {
-                found_else = true;
-                todo!();
+                let else_body = self.parse_block(self.current_token_idx, NodeKind::Block);
+                r#else = Some(else_body);
+
                 break;
             }
 
@@ -335,11 +337,18 @@ where
             let else_condition = self.parse_expr(ParseExprMode::CondExpr);
             self.push_child(&mut else_if, else_condition);
             let branch_body = self.parse_block(self.current_token_idx, NodeKind::Block);
+            self.push_child(&mut else_if, branch_body);
 
-            // let mut last_else_if_child = self.set_first_child(else_if, else_condition);
-            //
-            // let else_if = self.finalize_node(else_if, branch_start);
-            // self.link_child(else_ifs, else_if, &mut last_else_if_child);
+            let else_if = self.finalize_node(else_if, branch_start);
+            self.push_child(&mut else_ifs, else_if);
+        }
+
+        let else_ifs = self.finalize_node(else_ifs, else_ifs_start);
+        self.push_child(&mut conditional, else_ifs);
+
+        if let Some(r#else) = r#else {
+            self.nodes[else_ifs].tokens.end = self.nodes[r#else].tokens.start;
+            self.push_child(&mut conditional, r#else);
         }
 
         Some(self.finalize_node(conditional, condition_chain_start))
@@ -354,11 +363,11 @@ where
             || self.eat(Token::True)
             || self.eat(Token::False)
         {
-            return Some(self.alloc_single_token_node(NodeKind::LiteralExpr));
+            return Some(self.alloc_last_token_as_node(NodeKind::LiteralExpr));
         }
 
         if self.eat(Token::Identifier) {
-            return Some(self.alloc_single_token_node(NodeKind::Identifier));
+            return Some(self.alloc_last_token_as_node(NodeKind::Identifier));
         }
 
         if self.eat(Token::LeftRound) {
@@ -370,9 +379,15 @@ where
             return Some(self.finalize_node(paren_expr, start));
         }
 
-        if let Some(conditional) =
-            self.try_parse_conditional(ParseConditionalMode::ExprRequiringElse)
-        {
+        if self.eat(Token::Comptime) {
+            return Some(self.parse_block(start, NodeKind::ComptimeBlock));
+        }
+
+        if self.check(Token::LeftCurly) {
+            return Some(self.parse_block(self.current_token_idx, NodeKind::Block));
+        }
+
+        if let Some(conditional) = self.try_parse_conditional() {
             return Some(conditional);
         }
 
@@ -417,7 +432,7 @@ where
                 let mut member = self.alloc_node(NodeKind::MemberExpr);
                 self.push_child(&mut member, expr);
                 let access_name = if self.expect(Token::Identifier) {
-                    self.alloc_single_token_node(NodeKind::Identifier)
+                    self.alloc_last_token_as_node(NodeKind::Identifier)
                 } else {
                     let error = self.alloc_node(NodeKind::Error);
                     self.finalize_node(error, self.current_token_idx)
@@ -464,7 +479,7 @@ where
         while !self.check(Token::RightCurly) {
             let block_item_start = self.current_token_idx;
             if let Some(expr) = self.try_parse_expr(ParseExprMode::AllowAll) {
-                if let Some((supposed_end_expr, _)) = end_expr.take() {
+                if let Some(supposed_end_expr) = end_expr.take() {
                     self.push_child(&mut statements_list, supposed_end_expr);
                 }
 
@@ -476,12 +491,13 @@ where
                     continue;
                 }
 
-                end_expr = Some((expr, block_item_start));
+                end_expr = Some(expr);
 
-                let requires_semi_as_stmt = self.nodes[expr]
-                    .kind
-                    .expr_requires_semi_as_stmt()
-                    .expect("`try_parse_expr` returned non-expr node");
+                let expr_kind = self.nodes[expr].kind;
+                let requires_semi_as_stmt =
+                    expr_kind.expr_requires_semi_as_stmt().unwrap_or_else(|| {
+                        panic!("`try_parse_expr` returned non-expr node {:?}", expr_kind)
+                    });
 
                 if requires_semi_as_stmt {
                     break;
@@ -490,14 +506,24 @@ where
                 continue;
             }
 
+            // TODO: while statement
+            // if self.eat(Token::While) {
+            //     let r#while = self.alloc_node(NodeKind::WhileStmt);
+            //     let condition = self.try_parse_expr(ParseExprMode::CondExpr).unwrap_or_else(|| {
+            //         self.emit_unexpected();
+            //         let err = self.alloc_node(NodeKind::Error);
+            //         self.finalize_node(err, self.current_token_idx)
+            //     });
+            // }
+
             self.emit_unexpected();
             break;
         }
 
         let statements_list = self.finalize_node(statements_list, statements_list_start);
         self.push_child(&mut block, statements_list);
-        if let Some((end_expr, end_expr_start)) = end_expr {
-            self.nodes[statements_list].tokens.end = end_expr_start;
+        if let Some(end_expr) = end_expr {
+            self.nodes[statements_list].tokens.end = self.nodes[end_expr].tokens.start;
             self.push_child(&mut block, end_expr);
         }
 
@@ -530,7 +556,7 @@ where
         } else {
             self.emit_unexpected();
             self.advance();
-            self.alloc_single_token_node(NodeKind::Error)
+            self.alloc_last_token_as_node(NodeKind::Error)
         }
     }
 
@@ -541,7 +567,7 @@ where
         let mut r#const = self.alloc_node(NodeKind::ConstDecl);
 
         let name = if self.expect(Token::Identifier) {
-            self.alloc_single_token_node(NodeKind::Identifier)
+            self.alloc_last_token_as_node(NodeKind::Identifier)
         } else {
             let error = self.alloc_node(NodeKind::Error);
             self.finalize_node(error, self.current_token_idx)

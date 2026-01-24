@@ -614,11 +614,11 @@ fn test_binary_precedence_cmp_and() {
 }
 
 // =============================================================================
-// Conditional Expressions
+// If Expressions
 // =============================================================================
 
 #[test]
-fn test_cond_expr_if_else() {
+fn test_if_expr_if_else() {
     assert_parses_to_cst_no_errors_dedented(
         "const x = if a { b; } else { c; };",
         r#"
@@ -630,8 +630,8 @@ fn test_cond_expr_if_else() {
                     "x"
                 " "
                 "="
-                CondExpr
-                    " "
+                " "
+                If
                     "if"
                     " "
                     Identifier
@@ -639,33 +639,35 @@ fn test_cond_expr_if_else() {
                     " "
                     Block
                         "{"
-                        " "
-                        ExprStmt
-                            Identifier
-                                "b"
-                            ";"
-                        " "
+                        StatementsList
+                            " "
+                            ExprStmt
+                                Identifier
+                                    "b"
+                                ";"
+                            " "
                         "}"
-                    " "
-                    ElseBranch
+                    ElseIfBranchList
+                        " "
                         "else"
                         " "
-                        Block
-                            "{"
+                    Block
+                        "{"
+                        StatementsList
                             " "
                             ExprStmt
                                 Identifier
                                     "c"
                                 ";"
                             " "
-                            "}"
+                        "}"
                 ";"
         "#,
     );
 }
 
 #[test]
-fn test_cond_expr_if_elseif_else() {
+fn test_if_expr_if_elseif_else() {
     assert_parses_to_cst_no_errors_dedented(
         "const x = if a { b; } else if c { d; } else { e; };",
         r#"
@@ -677,8 +679,8 @@ fn test_cond_expr_if_elseif_else() {
                     "x"
                 " "
                 "="
-                CondExpr
-                    " "
+                " "
+                If
                     "if"
                     " "
                     Identifier
@@ -686,44 +688,47 @@ fn test_cond_expr_if_elseif_else() {
                     " "
                     Block
                         "{"
-                        " "
-                        ExprStmt
-                            Identifier
-                                "b"
-                            ";"
-                        " "
-                        "}"
-                    " "
-                    ElseBranch
-                        "else"
-                        " "
-                        "if"
-                        " "
-                        Identifier
-                            "c"
-                        " "
-                        Block
-                            "{"
+                        StatementsList
                             " "
                             ExprStmt
                                 Identifier
-                                    "d"
+                                    "b"
                                 ";"
                             " "
-                            "}"
-                    " "
-                    ElseBranch
+                        "}"
+                    ElseIfBranchList
+                        " "
+                        ElseIfBranch
+                            "else"
+                            " "
+                            "if"
+                            " "
+                            Identifier
+                                "c"
+                            " "
+                            Block
+                                "{"
+                                StatementsList
+                                    " "
+                                    ExprStmt
+                                        Identifier
+                                            "d"
+                                        ";"
+                                    " "
+                                "}"
+                        " "
                         "else"
                         " "
-                        Block
-                            "{"
+                    Block
+                        "{"
+                        StatementsList
                             " "
                             ExprStmt
                                 Identifier
                                     "e"
                                 ";"
                             " "
-                            "}"
+                        "}"
                 ";"
         "#,
     );
@@ -1641,7 +1646,7 @@ fn test_while_inline() {
 }
 
 #[test]
-fn test_cond_stmt_if_only() {
+fn test_if_stmt_if_only() {
     assert_parses_to_cst_no_errors_dedented(
         "init { if x { y; } }",
         r#"
@@ -1650,8 +1655,9 @@ fn test_cond_stmt_if_only() {
                 "init"
                 " "
                 "{"
-                " "
-                CondExpr
+                StatementsList
+                    " "
+                If
                     "if"
                     " "
                     Identifier
@@ -1659,31 +1665,43 @@ fn test_cond_stmt_if_only() {
                     " "
                     Block
                         "{"
-                        " "
-                        ExprStmt
-                            Identifier
-                                "y"
-                            ";"
-                        " "
+                        StatementsList
+                            " "
+                            ExprStmt
+                                Identifier
+                                    "y"
+                                ";"
+                            " "
                         "}"
-                " "
+                    ElseIfBranchList
+                        " "
+
                 "}"
         "#,
     );
 }
 
 #[test]
-fn test_cond_stmt_if_elseif() {
+fn test_if_stmt_if_elseif() {
     assert_parses_to_cst_no_errors_dedented(
-        "init { if a { b; } else if c { d; } }",
+        r#"
+        init {
+            if a {
+                b;
+            } else if 34 {
+                d;
+            }
+        }
+        "#,
         r#"
         File
             InitBlock
                 "init"
                 " "
                 "{"
-                " "
-                CondExpr
+                StatementsList
+                    "\n    "
+                If
                     "if"
                     " "
                     Identifier
@@ -1691,32 +1709,35 @@ fn test_cond_stmt_if_elseif() {
                     " "
                     Block
                         "{"
-                        " "
-                        ExprStmt
-                            Identifier
-                                "b"
-                            ";"
-                        " "
-                        "}"
-                    " "
-                    ElseBranch
-                        "else"
-                        " "
-                        "if"
-                        " "
-                        Identifier
-                            "c"
-                        " "
-                        Block
-                            "{"
-                            " "
+                        StatementsList
+                            "\n        "
                             ExprStmt
                                 Identifier
-                                    "d"
+                                    "b"
                                 ";"
+                            "\n    "
+                        "}"
+                    ElseIfBranchList
+                        " "
+                        ElseIfBranch
+                            "else"
                             " "
-                            "}"
-                " "
+                            "if"
+                            " "
+                            LiteralExpr
+                                "34"
+                            " "
+                            Block
+                                "{"
+                                StatementsList
+                                    "\n        "
+                                    ExprStmt
+                                        Identifier
+                                            "d"
+                                        ";"
+                                    "\n    "
+                                "}"
+                        "\n"
                 "}"
         "#,
     );
@@ -1826,9 +1847,10 @@ fn test_empty_block_expr() {
                     "x"
                 " "
                 "="
+                " "
                 Block
-                    " "
                     "{"
+                    StatementsList
                     "}"
                 ";"
         "#,
