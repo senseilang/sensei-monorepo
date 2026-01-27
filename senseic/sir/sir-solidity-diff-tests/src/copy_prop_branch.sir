@@ -1,0 +1,23 @@
+fn init:
+    entry {
+        c0 = const 0
+        c32 = const 32
+        x = calldataload c0
+        y = calldataload c32
+        a = copy x
+        b = copy y
+        c = copy a
+        result = add c b
+        cond = copy result
+        => cond ? @nonzero : @zero
+    }
+    nonzero {
+        buf1 = sallocany 32
+        mstore256 buf1 result
+        return buf1 c32
+    }
+    zero {
+        buf2 = sallocany 32
+        mstore256 buf2 c0
+        return buf2 c32
+    }
