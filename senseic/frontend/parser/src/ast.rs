@@ -1,5 +1,5 @@
 use inturn::Interner;
-use neosen_data::X32;
+use sensei_core::X32;
 
 pub struct InternedString;
 pub type IStr = X32<InternedString>;

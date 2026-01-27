@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["frontend/*", "sir/crates/*", "sir/test-utils"]
+members = ["crates/*", "frontend/*", "sir/crates/*", "sir/test-utils"]
 
 [workspace.package]
 version = "0.1.0"
@@ -8,8 +8,10 @@ edition = "2024"
 license = "MIT"
 
 [workspace.dependencies]
+# Core
+sensei-core = { path = "crates/sensei-core" }
+
 # Frontend Sub Crates
-neosen-data = { path = "frontend/data" }
 neosen-parser = { path = "frontend/parser" }
 
 # SIR Sub Crates

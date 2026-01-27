@@ -3,7 +3,7 @@ use crate::{
     error_report::LineIndex,
     lexer::{Lexer, SourceSpan},
 };
-use neosen_data::{IndexVec, Span};
+use sensei_core::{IndexVec, Span};
 
 use crate::cst::ConcreteSyntaxTree;
 

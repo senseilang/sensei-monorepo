@@ -1118,15 +1118,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "neosen-data"
-version = "0.1.0"
-dependencies = [
- "allocator-api2",
- "bumpalo",
- "inturn",
-]
-
-[[package]]
 name = "neosen-parser"
 version = "0.1.0"
 dependencies = [
@@ -1135,8 +1126,8 @@ dependencies = [
  "hashbrown 0.16.0",
  "inturn",
  "logos",
- "neosen-data",
  "pretty_assertions",
+ "sensei-core",
  "smallvec",
  "tree-sitter",
  "tree-sitter-sensei",
@@ -1658,6 +1649,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9900206b54a3527fdc7b8a938bffd94a568bac4f4aa8113b209df75a09c0dec2"
 dependencies = [
  "pest",
+]
+
+[[package]]
+name = "sensei-core"
+version = "0.1.0"
+dependencies = [
+ "allocator-api2",
+ "bumpalo",
+ "inturn",
 ]
 
 [[package]]

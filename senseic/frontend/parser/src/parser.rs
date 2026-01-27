@@ -6,7 +6,7 @@ use crate::{
 };
 use allocator_api2::vec::Vec;
 use bumpalo::Bump;
-use neosen_data::{IndexVec, Span, span::IncIterable};
+use sensei_core::{IndexVec, Span, span::IncIterable};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 struct OpPriority(u8);

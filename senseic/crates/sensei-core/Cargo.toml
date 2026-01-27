@@ -1,5 +1,5 @@
 [package]
-name = "neosen-data"
+name = "sensei-core"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

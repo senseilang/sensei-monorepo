@@ -1,6 +1,6 @@
 use crate::const_print::const_assert_eq;
 use bumpalo::Bump;
-use neosen_data::{IndexVec, Span, X32};
+use sensei_core::{IndexVec, Span, X32};
 
 pub mod display;
 

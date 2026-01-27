@@ -1,5 +1,5 @@
 use logos::{Lexer as LogosLexer, Logos};
-use neosen_data::Span;
+use sensei_core::Span;
 
 type CharsPeekable<'a> = std::iter::Peekable<std::str::CharIndices<'a>>;
 
