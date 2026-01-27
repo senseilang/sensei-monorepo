@@ -383,7 +383,7 @@ mod tests {
         assert_eq!(lex_all(">"), vec![(Token::GreaterThan, 0..1, ">")]);
         assert_eq!(lex_all("<="), vec![(Token::LessEquals, 0..2, "<=")]);
         assert_eq!(lex_all(">="), vec![(Token::GreaterEquals, 0..2, ">=")]);
-        assert_eq!(lex_all("and"), vec![(Token::And, 0..2, "and")]);
+        assert_eq!(lex_all("and"), vec![(Token::And, 0..3, "and")]);
         assert_eq!(lex_all("or"), vec![(Token::Or, 0..2, "or")]);
         assert_eq!(lex_all("!"), vec![(Token::Bang, 0..1, "!")]);
         assert_eq!(lex_all("&"), vec![(Token::Ampersand, 0..1, "&")]);

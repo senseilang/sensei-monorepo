@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/*"]
+members = ["frontend/*"]
 
 [workspace.package]
 version = "0.1.0"
@@ -9,8 +9,8 @@ license = "MIT"
 
 [workspace.dependencies]
 # Sub Crates
-neosen-data = {path = "crates/data"}
-neosen-parser = {path = "crates/parser"}
+neosen-data = {path = "frontend/data"}
+neosen-parser = {path = "frontend/parser"}
 
 # Shared Dependencies
 bumpalo = {version = "3.19.0", features=["allocator-api2"]}
