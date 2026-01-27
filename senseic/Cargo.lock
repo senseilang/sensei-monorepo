@@ -1769,6 +1769,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "sir-debug-backend",
+ "sir-optimizations",
  "sir-parser",
 ]
 
@@ -1791,6 +1792,13 @@ dependencies = [
  "sir-assembler",
  "sir-data",
  "smallvec",
+]
+
+[[package]]
+name = "sir-optimizations"
+version = "0.1.0"
+dependencies = [
+ "sir-data",
 ]
 
 [[package]]
