@@ -1,0 +1,421 @@
+fn init:
+    init_entry {
+        c0 = const 0
+        runtime_off = runtime_start_offset
+        runtime_len = runtime_length
+        buf = malloc runtime_len
+        codecopy buf runtime_off runtime_len
+        return buf runtime_len
+    }
+
+fn main:
+    main_entry {
+        c0 = const 0
+        c4 = const 4
+        c32 = const 32
+        c35 = const 35
+        c36 = const 36
+        c67 = const 67
+        c68 = const 68
+        c99 = const 99
+        c224 = const 224
+
+        // Check callvalue is 0
+        cv = callvalue
+        cv_nonzero = iszero cv
+        => cv_nonzero ? @load_selector : @revert_error
+    }
+
+    load_selector {
+        // Load selector from first 4 bytes
+        selector_word = calldataload c0
+        selector = shr c224 selector_word
+
+        // Switch on selector
+        switch selector {
+            0xd1cbf1c5 => @add_
+            0xc42e9208 => @mul_
+            0xf090359a => @sub_
+            0x70ea8194 => @div_
+            0x74f6c5bb => @sdiv_
+            0x5a7ea41c => @mod_
+            0xd44aeb8a => @smod_
+            0xd957a807 => @addmod_
+            0xab3300c3 => @mulmod_
+            0x630834b5 => @exp_
+            0xbb1c8ed4 => @signextend_
+            0x3fc4f3f5 => @lt_
+            0x5b1db25f => @gt_
+            0x0f58c996 => @slt_
+            0xe7a77a56 => @sgt_
+            0xd8a1aad7 => @eq_
+            0x44febe2f => @iszero_
+            0x8491293f => @and_
+            0x3f8d6558 => @or_
+            0x27401a41 => @xor_
+            0xd6eddb18 => @not_
+            0xd92b22cc => @byte_
+            0x45a90766 => @shl_
+            0x38619a92 => @shr_
+            0x2ea9b94b => @sar_
+            default => @revert_error
+        }
+    }
+
+    // Two-argument functions
+    add_ {
+        cdsize_add = calldatasize
+        valid_add = lt c67 cdsize_add
+        => valid_add ? @add_exec : @revert_error
+    }
+    add_exec {
+        a_add = calldataload c4
+        b_add = calldataload c36
+        result_add = add a_add b_add
+        buf_add = sallocany 32
+        mstore256 buf_add result_add
+        return buf_add c32
+    }
+
+    mul_ {
+        cdsize_mul = calldatasize
+        valid_mul = lt c67 cdsize_mul
+        => valid_mul ? @mul_exec : @revert_error
+    }
+    mul_exec {
+        a_mul = calldataload c4
+        b_mul = calldataload c36
+        result_mul = mul a_mul b_mul
+        buf_mul = sallocany 32
+        mstore256 buf_mul result_mul
+        return buf_mul c32
+    }
+
+    sub_ {
+        cdsize_sub = calldatasize
+        valid_sub = lt c67 cdsize_sub
+        => valid_sub ? @sub_exec : @revert_error
+    }
+    sub_exec {
+        a_sub = calldataload c4
+        b_sub = calldataload c36
+        result_sub = sub a_sub b_sub
+        buf_sub = sallocany 32
+        mstore256 buf_sub result_sub
+        return buf_sub c32
+    }
+
+    div_ {
+        cdsize_div = calldatasize
+        valid_div = lt c67 cdsize_div
+        => valid_div ? @div_exec : @revert_error
+    }
+    div_exec {
+        a_div = calldataload c4
+        b_div = calldataload c36
+        result_div = div a_div b_div
+        buf_div = sallocany 32
+        mstore256 buf_div result_div
+        return buf_div c32
+    }
+
+    sdiv_ {
+        cdsize_sdiv = calldatasize
+        valid_sdiv = lt c67 cdsize_sdiv
+        => valid_sdiv ? @sdiv_exec : @revert_error
+    }
+    sdiv_exec {
+        a_sdiv = calldataload c4
+        b_sdiv = calldataload c36
+        result_sdiv = sdiv a_sdiv b_sdiv
+        buf_sdiv = sallocany 32
+        mstore256 buf_sdiv result_sdiv
+        return buf_sdiv c32
+    }
+
+    mod_ {
+        cdsize_mod = calldatasize
+        valid_mod = lt c67 cdsize_mod
+        => valid_mod ? @mod_exec : @revert_error
+    }
+    mod_exec {
+        a_mod = calldataload c4
+        b_mod = calldataload c36
+        result_mod = mod a_mod b_mod
+        buf_mod = sallocany 32
+        mstore256 buf_mod result_mod
+        return buf_mod c32
+    }
+
+    smod_ {
+        cdsize_smod = calldatasize
+        valid_smod = lt c67 cdsize_smod
+        => valid_smod ? @smod_exec : @revert_error
+    }
+    smod_exec {
+        a_smod = calldataload c4
+        b_smod = calldataload c36
+        result_smod = smod a_smod b_smod
+        buf_smod = sallocany 32
+        mstore256 buf_smod result_smod
+        return buf_smod c32
+    }
+
+    exp_ {
+        cdsize_exp = calldatasize
+        valid_exp = lt c67 cdsize_exp
+        => valid_exp ? @exp_exec : @revert_error
+    }
+    exp_exec {
+        a_exp = calldataload c4
+        b_exp = calldataload c36
+        result_exp = exp a_exp b_exp
+        buf_exp = sallocany 32
+        mstore256 buf_exp result_exp
+        return buf_exp c32
+    }
+
+    signextend_ {
+        cdsize_signextend = calldatasize
+        valid_signextend = lt c67 cdsize_signextend
+        => valid_signextend ? @signextend_exec : @revert_error
+    }
+    signextend_exec {
+        a_signextend = calldataload c4
+        b_signextend = calldataload c36
+        result_signextend = signextend a_signextend b_signextend
+        buf_signextend = sallocany 32
+        mstore256 buf_signextend result_signextend
+        return buf_signextend c32
+    }
+
+    lt_ {
+        cdsize_lt = calldatasize
+        valid_lt = lt c67 cdsize_lt
+        => valid_lt ? @lt_exec : @revert_error
+    }
+    lt_exec {
+        a_lt = calldataload c4
+        b_lt = calldataload c36
+        result_lt = lt a_lt b_lt
+        buf_lt = sallocany 32
+        mstore256 buf_lt result_lt
+        return buf_lt c32
+    }
+
+    gt_ {
+        cdsize_gt = calldatasize
+        valid_gt = lt c67 cdsize_gt
+        => valid_gt ? @gt_exec : @revert_error
+    }
+    gt_exec {
+        a_gt = calldataload c4
+        b_gt = calldataload c36
+        result_gt = gt a_gt b_gt
+        buf_gt = sallocany 32
+        mstore256 buf_gt result_gt
+        return buf_gt c32
+    }
+
+    slt_ {
+        cdsize_slt = calldatasize
+        valid_slt = lt c67 cdsize_slt
+        => valid_slt ? @slt_exec : @revert_error
+    }
+    slt_exec {
+        a_slt = calldataload c4
+        b_slt = calldataload c36
+        result_slt = slt a_slt b_slt
+        buf_slt = sallocany 32
+        mstore256 buf_slt result_slt
+        return buf_slt c32
+    }
+
+    sgt_ {
+        cdsize_sgt = calldatasize
+        valid_sgt = lt c67 cdsize_sgt
+        => valid_sgt ? @sgt_exec : @revert_error
+    }
+    sgt_exec {
+        a_sgt = calldataload c4
+        b_sgt = calldataload c36
+        result_sgt = sgt a_sgt b_sgt
+        buf_sgt = sallocany 32
+        mstore256 buf_sgt result_sgt
+        return buf_sgt c32
+    }
+
+    eq_ {
+        cdsize_eq = calldatasize
+        valid_eq = lt c67 cdsize_eq
+        => valid_eq ? @eq_exec : @revert_error
+    }
+    eq_exec {
+        a_eq = calldataload c4
+        b_eq = calldataload c36
+        result_eq = eq a_eq b_eq
+        buf_eq = sallocany 32
+        mstore256 buf_eq result_eq
+        return buf_eq c32
+    }
+
+    and_ {
+        cdsize_and = calldatasize
+        valid_and = lt c67 cdsize_and
+        => valid_and ? @and_exec : @revert_error
+    }
+    and_exec {
+        a_and = calldataload c4
+        b_and = calldataload c36
+        result_and = and a_and b_and
+        buf_and = sallocany 32
+        mstore256 buf_and result_and
+        return buf_and c32
+    }
+
+    or_ {
+        cdsize_or = calldatasize
+        valid_or = lt c67 cdsize_or
+        => valid_or ? @or_exec : @revert_error
+    }
+    or_exec {
+        a_or = calldataload c4
+        b_or = calldataload c36
+        result_or = or a_or b_or
+        buf_or = sallocany 32
+        mstore256 buf_or result_or
+        return buf_or c32
+    }
+
+    xor_ {
+        cdsize_xor = calldatasize
+        valid_xor = lt c67 cdsize_xor
+        => valid_xor ? @xor_exec : @revert_error
+    }
+    xor_exec {
+        a_xor = calldataload c4
+        b_xor = calldataload c36
+        result_xor = xor a_xor b_xor
+        buf_xor = sallocany 32
+        mstore256 buf_xor result_xor
+        return buf_xor c32
+    }
+
+    byte_ {
+        cdsize_byte = calldatasize
+        valid_byte = lt c67 cdsize_byte
+        => valid_byte ? @byte_exec : @revert_error
+    }
+    byte_exec {
+        a_byte = calldataload c4
+        b_byte = calldataload c36
+        result_byte = byte a_byte b_byte
+        buf_byte = sallocany 32
+        mstore256 buf_byte result_byte
+        return buf_byte c32
+    }
+
+    shl_ {
+        cdsize_shl = calldatasize
+        valid_shl = lt c67 cdsize_shl
+        => valid_shl ? @shl_exec : @revert_error
+    }
+    shl_exec {
+        a_shl = calldataload c4
+        b_shl = calldataload c36
+        result_shl = shl a_shl b_shl
+        buf_shl = sallocany 32
+        mstore256 buf_shl result_shl
+        return buf_shl c32
+    }
+
+    shr_ {
+        cdsize_shr = calldatasize
+        valid_shr = lt c67 cdsize_shr
+        => valid_shr ? @shr_exec : @revert_error
+    }
+    shr_exec {
+        a_shr = calldataload c4
+        b_shr = calldataload c36
+        result_shr = shr a_shr b_shr
+        buf_shr = sallocany 32
+        mstore256 buf_shr result_shr
+        return buf_shr c32
+    }
+
+    sar_ {
+        cdsize_sar = calldatasize
+        valid_sar = lt c67 cdsize_sar
+        => valid_sar ? @sar_exec : @revert_error
+    }
+    sar_exec {
+        a_sar = calldataload c4
+        b_sar = calldataload c36
+        result_sar = sar a_sar b_sar
+        buf_sar = sallocany 32
+        mstore256 buf_sar result_sar
+        return buf_sar c32
+    }
+
+    // One-argument functions
+    iszero_ {
+        cdsize_iszero = calldatasize
+        valid_iszero = lt c35 cdsize_iszero
+        => valid_iszero ? @iszero_exec : @revert_error
+    }
+    iszero_exec {
+        a_iszero = calldataload c4
+        result_iszero = iszero a_iszero
+        buf_iszero = sallocany 32
+        mstore256 buf_iszero result_iszero
+        return buf_iszero c32
+    }
+
+    not_ {
+        cdsize_not = calldatasize
+        valid_not = lt c35 cdsize_not
+        => valid_not ? @not_exec : @revert_error
+    }
+    not_exec {
+        a_not = calldataload c4
+        result_not = not a_not
+        buf_not = sallocany 32
+        mstore256 buf_not result_not
+        return buf_not c32
+    }
+
+    // Three-argument functions
+    addmod_ {
+        cdsize_addmod = calldatasize
+        valid_addmod = lt c99 cdsize_addmod
+        => valid_addmod ? @addmod_exec : @revert_error
+    }
+    addmod_exec {
+        a_addmod = calldataload c4
+        b_addmod = calldataload c36
+        n_addmod = calldataload c68
+        result_addmod = addmod a_addmod b_addmod n_addmod
+        buf_addmod = sallocany 32
+        mstore256 buf_addmod result_addmod
+        return buf_addmod c32
+    }
+
+    mulmod_ {
+        cdsize_mulmod = calldatasize
+        valid_mulmod = lt c99 cdsize_mulmod
+        => valid_mulmod ? @mulmod_exec : @revert_error
+    }
+    mulmod_exec {
+        a_mulmod = calldataload c4
+        b_mulmod = calldataload c36
+        n_mulmod = calldataload c68
+        result_mulmod = mulmod a_mulmod b_mulmod n_mulmod
+        buf_mulmod = sallocany 32
+        mstore256 buf_mulmod result_mulmod
+        return buf_mulmod c32
+    }
+
+    // Revert helper
+    revert_error {
+        revert c0 c0
+    }

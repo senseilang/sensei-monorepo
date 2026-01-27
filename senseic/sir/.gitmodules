@@ -1,0 +1,3 @@
+[submodule "sir-solidity-diff-tests/lib/forge-std"]
+	path = sir-solidity-diff-tests/lib/forge-std
+	url = https://github.com/foundry-rs/forge-std

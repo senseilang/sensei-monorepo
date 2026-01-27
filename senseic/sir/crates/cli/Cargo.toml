@@ -1,0 +1,14 @@
+[package]
+name = "sir-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "sir"
+path = "src/main.rs"
+
+[dependencies]
+sir-parser.workspace = true
+sir-debug-backend = { path = "../debug-backend" }
+clap = { version = "4.5", features = ["derive"] }

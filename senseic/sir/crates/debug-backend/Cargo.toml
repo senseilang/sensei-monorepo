@@ -1,0 +1,11 @@
+[package]
+name = "sir-debug-backend"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+sir-data.workspace = true
+alloy-primitives.workspace = true
+smallvec.workspace = true
+sir-assembler.workspace = true

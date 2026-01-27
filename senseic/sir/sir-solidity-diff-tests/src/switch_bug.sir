@@ -1,0 +1,27 @@
+fn init:
+    entry {
+        c0 = const 0
+        c32 = const 32
+        x = calldataload c0
+        y = calldataload c32
+        x_gt = gt x y
+        switch x_gt {
+            0 => @y_gt
+            1 => @x_gt
+        }
+    }
+    x_gt {
+        res0 = sub x y
+        buf0 = sallocany 32
+        mstore256 buf0 res0
+        ptr0 = add buf0 c0
+        return ptr0 c32
+    }
+    y_gt {
+        res1 = sub y x
+        buf1 = sallocany 32
+        mstore256 buf1 res1
+        ptr1 = add buf1 c0
+        return ptr1 c32
+    }
+

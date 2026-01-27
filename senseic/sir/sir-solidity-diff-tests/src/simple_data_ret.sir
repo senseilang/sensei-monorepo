@@ -1,0 +1,20 @@
+fn init:
+    init_entry {
+        runtime_start = runtime_start_offset
+        runtime_len = runtime_length
+        buf = malloc runtime_len
+        codecopy buf runtime_start runtime_len
+        return buf runtime_len
+    }
+
+fn main:
+    main_entry {
+        blob_loc = data_offset .blob
+        size = const 65
+        buf = sallocany 65
+        codecopy buf blob_loc size
+        return buf size
+    }
+
+data blob
+    0x8bd264b46c74b938c1d6859e756af47a05d95c39ae59b6f280469359afa7d5aa78aadf485b1ce22da227e4b2873a96e0d328f090c5341606d0b4ffa695f0618d00

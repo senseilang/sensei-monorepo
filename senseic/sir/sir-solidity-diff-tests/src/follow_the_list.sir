@@ -1,0 +1,35 @@
+fn init:
+    entry {
+        c0 = const 0
+        c32 = const 32
+        len = calldataload c32
+        => len ? @move_to_next : @error
+    }
+
+    move_to_next {
+        res_i = icall @follow_list c0 len
+        buf = sallocany 32
+        mstore256 buf res_i
+        return buf c32
+    }
+
+
+    error {
+        revert c0 c0
+    }
+
+fn follow_list:
+    follow_list_entry i len -> next_i len {
+        c32 = const 32
+        offset = mul i c32
+        cx40 = const 0x40
+        cptr = add cx40 offset
+        next_i = calldataload cptr
+        idx_in_bounds = lt next_i len
+        => idx_in_bounds ? @follow_list_entry : @finish
+    }
+
+    finish last_i _l -> last_i {
+        iret
+    }
+

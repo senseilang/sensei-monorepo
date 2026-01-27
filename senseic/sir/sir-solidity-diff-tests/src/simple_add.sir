@@ -1,0 +1,18 @@
+fn init:
+    init_entry {
+        c0 = const 0
+        c32 = const 32
+        a = calldataload c0
+        b = calldataload c32
+        result = add a b
+        no_gud = gt a result
+        => no_gud ? @error : @gud
+    }
+    error {
+        revert c0 c0
+    }
+    gud {
+        buf = sallocany 32
+        mstore256 buf result
+        return buf c32
+    }

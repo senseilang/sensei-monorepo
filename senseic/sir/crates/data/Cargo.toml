@@ -1,0 +1,13 @@
+[package]
+name = "sir-data"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+alloy-primitives.workspace = true
+index_vec = "0.1.4"
+thiserror.workspace = true
+
+[dev-dependencies]
+test-utils = { path = "../../test-utils" }
