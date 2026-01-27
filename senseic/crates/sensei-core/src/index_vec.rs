@@ -389,20 +389,6 @@ impl<I, T, A: Allocator> IndexVec<I, T, A> {
         self.next_idx()
     }
 
-    /// Returns an iterator that yields `(index, &element)` pairs.
-    /// Alias for `enumerate_idx` for compatibility with `index_vec` crate.
-    #[inline]
-    pub fn iter_enumerated(&self) -> impl Iterator<Item = (X32<I>, &T)> {
-        self.enumerate_idx()
-    }
-
-    /// Returns an iterator that yields `(index, &mut element)` pairs.
-    /// Alias for `enumerate_mut_idx` for compatibility with `index_vec` crate.
-    #[inline]
-    pub fn iter_enumerated_mut(&mut self) -> impl Iterator<Item = (X32<I>, &mut T)> {
-        self.enumerate_mut_idx()
-    }
-
     /// Returns a `RelSlice` for the given span, preserving absolute indices.
     #[inline]
     pub fn rel_slice(&self, span: Span<X32<I>>) -> RelSlice<'_, I, T> {
@@ -636,10 +622,10 @@ mod tests {
     }
 
     #[test]
-    fn test_iter_enumerated() {
+    fn test_enumerate_idx() {
         let v: IndexVec<TestIdx, &str> = index_vec!["a", "b", "c"];
 
-        let collected: Vec<_> = v.iter_enumerated().collect();
+        let collected: Vec<_> = v.enumerate_idx().collect();
         assert_eq!(collected.len(), 3);
         assert_eq!(collected[0], (X32::new(0), &"a"));
         assert_eq!(collected[1], (X32::new(1), &"b"));

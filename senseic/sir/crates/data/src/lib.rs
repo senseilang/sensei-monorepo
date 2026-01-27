@@ -50,7 +50,7 @@ pub fn display_program(ir: &EthIRProgram) -> String {
     }
 
     // Display functions
-    for (fn_id, func) in ir.functions.iter_enumerated() {
+    for (fn_id, func) in ir.functions.enumerate_idx() {
         writeln!(
             &mut output,
             "    fn @{} -> entry @{}  (outputs: {})",
@@ -68,7 +68,7 @@ pub fn display_program(ir: &EthIRProgram) -> String {
     writeln!(&mut output, "Basic Blocks:").unwrap();
 
     // Display all basic blocks
-    for (bb_id, bb) in ir.basic_blocks.iter_enumerated() {
+    for (bb_id, bb) in ir.basic_blocks.enumerate_idx() {
         use std::fmt::Write as _;
         bb.fmt_display(&mut output, bb_id, ir).unwrap();
         writeln!(&mut output).unwrap();
@@ -78,7 +78,7 @@ pub fn display_program(ir: &EthIRProgram) -> String {
     if !ir.data_segments_start.is_empty() {
         writeln!(&mut output).unwrap();
 
-        for (segment_id, _) in ir.data_segments_start.iter_enumerated() {
+        for (segment_id, _) in ir.data_segments_start.enumerate_idx() {
             write!(&mut output, "data .{segment_id} ").unwrap();
 
             let range = ir.get_segment_range(segment_id);

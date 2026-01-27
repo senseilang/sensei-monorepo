@@ -1,5 +1,5 @@
 use sir_data::{
-    index_vec, BasicBlockId, BasicBlockIdMarker, DataOffset, EthIRProgram, FunctionId, IndexVec,
+    BasicBlockId, BasicBlockIdMarker, DataOffset, EthIRProgram, FunctionId, IndexVec, index_vec,
 };
 
 #[derive(Debug, Clone)]
@@ -11,7 +11,7 @@ impl BasicBlockOwnershipAndReachability {
     pub fn analyze(program: &EthIRProgram) -> Self {
         let mut ownership = index_vec![None; program.basic_blocks.len()];
 
-        for (func_id, func) in program.functions.iter_enumerated() {
+        for (func_id, func) in program.functions.enumerate_idx() {
             Self::mark_reachable_blocks(&mut ownership, program, func.entry(), func_id);
         }
 
@@ -45,30 +45,24 @@ impl BasicBlockOwnershipAndReachability {
     }
 
     pub fn blocks_owned_by(&self, func: FunctionId) -> impl Iterator<Item = BasicBlockId> + '_ {
-        self.ownership.iter_enumerated().filter_map(move |(bb_id, owner)| {
-            if *owner == Some(func) {
-                Some(bb_id)
-            } else {
-                None
-            }
-        })
+        self.ownership
+            .enumerate_idx()
+            .filter_map(move |(bb_id, owner)| if *owner == Some(func) { Some(bb_id) } else { None })
     }
 
     pub fn unreachable_blocks(&self) -> impl Iterator<Item = BasicBlockId> + '_ {
-        self.ownership.iter_enumerated().filter_map(move |(bb_id, owner)| {
-            if owner.is_none() {
-                Some(bb_id)
-            } else {
-                None
-            }
-        })
+        self.ownership.enumerate_idx().filter_map(
+            move |(bb_id, owner)| {
+                if owner.is_none() { Some(bb_id) } else { None }
+            },
+        )
     }
 
     pub fn display_ir_with_function_grouping(&self, program: &EthIRProgram) -> String {
         use std::fmt::Write;
         let mut output = String::new();
 
-        for (func_id, _func) in program.functions.iter_enumerated() {
+        for (func_id, _func) in program.functions.enumerate_idx() {
             writeln!(&mut output, "fn @{}:", func_id).unwrap();
 
             for bb_id in self.blocks_owned_by(func_id) {
@@ -91,7 +85,7 @@ impl BasicBlockOwnershipAndReachability {
         if !program.data_segments_start.is_empty() {
             writeln!(&mut output).unwrap();
 
-            for (segment_id, _) in program.data_segments_start.iter_enumerated() {
+            for (segment_id, _) in program.data_segments_start.enumerate_idx() {
                 write!(&mut output, "data .{segment_id} ").unwrap();
 
                 let range = program.get_segment_range(segment_id);
@@ -110,7 +104,7 @@ impl BasicBlockOwnershipAndReachability {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sir_data::{builder::EthIRBuilder, operation::*, Branch, Control, X32};
+    use sir_data::{Branch, Control, X32, builder::EthIRBuilder, operation::*};
 
     #[test]
     fn test_simple_ownership() {
