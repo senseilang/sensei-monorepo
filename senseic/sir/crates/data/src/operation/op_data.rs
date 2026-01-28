@@ -409,12 +409,12 @@ impl<const INS: usize, const OUTS: usize> FromOpData for AllocatedIns<INS, OUTS>
             .try_into()
             .map_err(|_| OpBuildError::WrongOutputCount { expected: OUTS, received: outs.len() })?;
         check_ins_count(ins, INS)?;
-        let ins_range = builder.alloc_locals(ins);
-        assert_eq!(ins_range.end - ins_range.start, INS as u32);
+        let ins_span = builder.alloc_locals(ins);
+        assert_eq!(ins_span.end - ins_span.start, INS as u32);
         if extra != OpExtraData::Empty {
             return Err(OpBuildError::UnexpectedExtraData { received: extra, expected: "Empty" });
         }
-        Ok(Self { ins_start: ins_range.start, outs })
+        Ok(Self { ins_start: ins_span.start, outs })
     }
 }
 
@@ -438,17 +438,17 @@ impl FromOpData for InternalCallData {
         check_ins_count(ins, inputs)?;
         check_outs_count(outs, outputs)?;
 
-        let ins_range = builder.alloc_locals(ins);
-        let outs_range = builder.alloc_locals(outs);
+        let ins_span = builder.alloc_locals(ins);
+        let outs_span = builder.alloc_locals(outs);
         assert_eq!(
-            ins_range.end, outs_range.start,
+            ins_span.end, outs_span.start,
             "Expecting icall locals to be stored contiguously"
         );
 
         Ok(InternalCallData {
             function: func_id,
-            ins_start: ins_range.start,
-            outs_start: outs_range.start,
+            ins_start: ins_span.start,
+            outs_start: outs_span.start,
         })
     }
 }

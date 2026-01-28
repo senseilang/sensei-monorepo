@@ -115,7 +115,7 @@ impl Function {
     }
 
     pub fn get_inputs(&self, basic_blocks: &IndexVec<BasicBlockIdMarker, BasicBlock>) -> u32 {
-        let inputs = basic_blocks[self.entry()].inputs.clone();
+        let inputs = basic_blocks[self.entry()].inputs;
         inputs.end - inputs.start
     }
 
@@ -151,7 +151,7 @@ impl BasicBlock {
 
         // Display inputs
         if !self.inputs.is_empty() {
-            for local in &ir.locals[self.inputs.clone()] {
+            for local in &ir.locals[self.inputs] {
                 write!(f, " ${local}")?;
             }
         }
@@ -159,7 +159,7 @@ impl BasicBlock {
         // Display outputs
         if !self.outputs.is_empty() {
             write!(f, " ->")?;
-            for local in &ir.locals[self.outputs.clone()] {
+            for local in &ir.locals[self.outputs] {
                 write!(f, " ${local}")?;
             }
         }
@@ -167,7 +167,7 @@ impl BasicBlock {
         writeln!(f, " {{")?;
 
         // Display operations
-        for op in &ir.operations[self.operations.clone()] {
+        for op in &ir.operations[self.operations] {
             write!(f, "        ")?;
             op.op_fmt(f, ir)?;
             writeln!(f)?;

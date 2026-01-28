@@ -296,13 +296,13 @@ fn overwrite_span_via_copy<M, T: Copy>(
 ) {
     let len = (span.end.get() - span.start.get()) as usize;
     if len >= new_values.len() {
-        backing[span.clone()][..new_values.len()].copy_from_slice(new_values);
+        backing[*span][..new_values.len()].copy_from_slice(new_values);
         span.end = span.start + new_values.len() as u32;
         return;
     }
 
     if span.end == backing.len_idx() {
-        backing[span.clone()].clone_from_slice(&new_values[..len]);
+        backing[*span].clone_from_slice(&new_values[..len]);
         backing.as_mut_vec().extend_from_slice(&new_values[len..]);
         span.end = backing.len_idx();
         return;
