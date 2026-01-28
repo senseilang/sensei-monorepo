@@ -30,6 +30,7 @@ impl<T> Spanned<T> {
     pub fn new(inner: T, span: Span) -> Self {
         Self { inner, span }
     }
+
     pub fn span(&self) -> Span {
         self.span.clone()
     }

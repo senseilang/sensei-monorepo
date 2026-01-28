@@ -128,3 +128,26 @@ impl<T: IncIterable> Iterator for IncIterator<T> {
         Some(self.start.get_and_inc())
     }
 }
+
+pub trait SpanLike<T: Copy> {
+    fn start(&self) -> T;
+    fn end(&self) -> T;
+}
+
+impl<T: Copy> SpanLike<T> for Span<T> {
+    fn start(&self) -> T {
+        self.start
+    }
+    fn end(&self) -> T {
+        self.end
+    }
+}
+
+impl<T: Copy> SpanLike<T> for std::ops::Range<T> {
+    fn start(&self) -> T {
+        self.start
+    }
+    fn end(&self) -> T {
+        self.end
+    }
+}

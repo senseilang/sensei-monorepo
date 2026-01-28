@@ -1,6 +1,10 @@
 use std::marker::PhantomData;
 
-use crate::{Span, index::X32, span::IncIterable};
+use crate::{
+    Span,
+    index::X32,
+    span::{IncIterable, SpanLike, ToUsize},
+};
 use allocator_api2::{
     alloc::{Allocator, Global},
     vec::Vec,
@@ -297,29 +301,20 @@ impl<I, T, A: Allocator> IndexVec<I, T, A> {
         self.next_idx()
     }
 
-    /// Returns a `RelSlice` for the given span, preserving absolute indices.
+    /// Returns a `RelSlice` for the given span or range, preserving absolute indices.
     #[inline]
-    pub fn rel_slice(&self, span: Span<X32<I>>) -> RelSlice<'_, I, T> {
-        RelSlice::new(span.start, &self.raw[span.usize_range()])
+    pub fn rel_slice(&self, span: impl SpanLike<X32<I>>) -> RelSlice<'_, I, T> {
+        let start = span.start();
+        let end = span.end();
+        RelSlice::new(start, &self.raw[start.to_usize()..end.to_usize()])
     }
 
     /// Returns a `RelSliceMut` for the given span, preserving absolute indices.
     #[inline]
-    pub fn rel_slice_mut(&mut self, span: Span<X32<I>>) -> RelSliceMut<'_, I, T> {
-        let start = span.start;
-        RelSliceMut::new(start, &mut self.raw[span.usize_range()])
-    }
-
-    /// Returns a `RelSlice` for the given range, preserving absolute indices.
-    #[inline]
-    pub fn rel_slice_range(&self, range: std::ops::Range<X32<I>>) -> RelSlice<'_, I, T> {
-        self.rel_slice(Span::new(range.start, range.end))
-    }
-
-    /// Returns a `RelSliceMut` for the given range, preserving absolute indices.
-    #[inline]
-    pub fn rel_slice_range_mut(&mut self, range: std::ops::Range<X32<I>>) -> RelSliceMut<'_, I, T> {
-        self.rel_slice_mut(Span::new(range.start, range.end))
+    pub fn rel_slice_mut(&mut self, span: impl SpanLike<X32<I>>) -> RelSliceMut<'_, I, T> {
+        let start = span.start();
+        let end = span.end();
+        RelSliceMut::new(start, &mut self.raw[start.to_usize()..end.to_usize()])
     }
 
     /// Returns a `RelSlice` for the entire Vec, preserving absolute indices.

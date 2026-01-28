@@ -217,16 +217,14 @@ impl Cases {
         &self,
         ir: &'ir EthIRProgram,
     ) -> RelSlice<'ir, LargeConstIdMarker, U256> {
-        ir.large_consts
-            .rel_slice_range(self.values_start_id..self.values_start_id + self.cases_count)
+        ir.large_consts.rel_slice(self.values_start_id..self.values_start_id + self.cases_count)
     }
 
     pub fn get_bb_ids<'ir>(
         &self,
         ir: &'ir EthIRProgram,
     ) -> RelSlice<'ir, CasesBasicBlocksIndexMarker, BasicBlockId> {
-        ir.cases_bb_ids
-            .rel_slice_range(self.targets_start_id..self.targets_start_id + self.cases_count)
+        ir.cases_bb_ids.rel_slice(self.targets_start_id..self.targets_start_id + self.cases_count)
     }
 }
 
