@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::{index::X32, span::IncIterable, Span};
+use crate::{Span, index::X32, span::IncIterable};
 use allocator_api2::{
     alloc::{Allocator, Global},
     vec::Vec,
@@ -451,7 +451,6 @@ mod tests {
     use super::*;
 
     enum TestIdx {}
-    type TestIndex = X32<TestIdx>;
 
     #[test]
     fn test_index_vec_basic() {
