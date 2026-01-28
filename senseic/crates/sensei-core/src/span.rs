@@ -43,6 +43,12 @@ impl<T> Span<T> {
     }
 }
 
+impl<T: Eq> Span<T> {
+    pub fn is_empty(&self) -> bool {
+        self.start == self.end
+    }
+}
+
 impl<M> Span<X32<M>> {
     pub const fn dummy() -> Self {
         Self { start: X32::MAX, end: X32::ZERO }
