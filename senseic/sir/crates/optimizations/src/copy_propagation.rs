@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use sir_data::{
-    Control, EthIRProgram, LocalId, LocalIdMarker, LocalIndex, LocalIndexMarker, Operation,
-    RelSliceMut, Span, X32,
+    Control, EthIRProgram, LocalId, LocalIdMarker, LocalIndexMarker, Operation, RelSliceMut, Span,
+    X32,
     operation::{
         AllocatedIns, InlineOperands, InternalCallData, MemoryLoadData, MemoryStoreData,
         OpVisitorMut, SetDataOffsetData, SetLargeConstData, SetSmallConstData, StaticAllocData,
@@ -79,16 +79,14 @@ pub fn run(program: &mut EthIRProgram) {
             }
         }
 
-        let span = Span::new(LocalIndex::new(0), program.locals.len_idx());
-        let locals = program.locals.rel_slice_mut(span);
+        let locals = program.locals.as_rel_slice_mut();
         let mut replacer = CopyReplacer { copy_map: &copy_map, locals };
         for op in &mut program.operations[ops_range] {
             op.visit_data_mut(&mut replacer);
         }
 
-        let mut locals = program.locals.rel_slice_mut(span);
-        for idx in Span::new(bb.outputs.start, bb.outputs.end).iter() {
-            replace_if_copied(&mut locals[idx], &copy_map);
+        for local in &mut program.locals[bb.outputs.clone()] {
+            replace_if_copied(local, &copy_map);
         }
 
         match &mut bb.control {
