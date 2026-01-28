@@ -349,4 +349,51 @@ Basic Blocks:
         let actual = run_copy_prop(input);
         assert_trim_strings_eq_with_diff(&actual, expected, "icall argument propagation");
     }
+
+    #[test]
+    fn test_copy_map_does_not_leak_between_blocks() {
+        let input = r#"
+            fn init:
+                entry {
+                    stop
+                }
+            fn test:
+                entry b {
+                    a = copy b
+                    => @next
+                }
+                next c d {
+                    e = add c d
+                    stop
+                }
+        "#;
+
+        let expected = r#"
+Functions:
+    fn @0 -> entry @0  (outputs: 0)
+    fn @1 -> entry @1  (outputs: 0)
+
+Basic Blocks:
+    @0 {
+        stop
+    }
+
+    @1 $0 {
+        $1 = copy $0
+        => @2
+    }
+
+    @2 $2 $3 {
+        $4 = add $2 $3
+        stop
+    }
+        "#;
+
+        let actual = run_copy_prop(input);
+        assert_trim_strings_eq_with_diff(
+            &actual,
+            expected,
+            "copy map does not leak between blocks",
+        );
+    }
 }
