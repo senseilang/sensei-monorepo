@@ -29,6 +29,12 @@ macro_rules! define_operations {
                 }
             }
 
+            pub fn visit_data_mut<O, V: OpVisitorMut<O>>(&mut self, visitor: &mut V) -> O {
+                match self {
+                    $(Self::$name(data) => data.get_visited_mut(visitor),)+
+                }
+            }
+
             pub fn op_fmt(&self, f: &mut impl fmt::Write, ir: &EthIRProgram) -> fmt::Result {
                 let mnemonic = self.kind().mnemonic();
                 let mut formatter = OpFormatter {

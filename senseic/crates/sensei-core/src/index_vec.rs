@@ -322,6 +322,18 @@ impl<I, T, A: Allocator> IndexVec<I, T, A> {
         self.rel_slice_mut(Span::new(range.start, range.end))
     }
 
+    /// Returns a `RelSlice` for the entire Vec, preserving absolute indices.
+    #[inline]
+    pub fn as_rel_slice(&self) -> RelSlice<'_, I, T> {
+        RelSlice::new(X32::new(0), &self.raw)
+    }
+
+    /// Returns a `RelSliceMut` for the entire Vec, preserving absolute indices.
+    #[inline]
+    pub fn as_rel_slice_mut(&mut self) -> RelSliceMut<'_, I, T> {
+        RelSliceMut::new(X32::new(0), &mut self.raw)
+    }
+
     /// Returns a reference to the underlying slice.
     #[inline]
     pub fn as_raw_slice(&self) -> &[T] {

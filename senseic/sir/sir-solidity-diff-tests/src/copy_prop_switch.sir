@@ -1,0 +1,34 @@
+fn init:
+    entry -> out {
+        c0 = const 0
+        c32 = const 32
+        c64 = const 64
+        selector = calldataload c0
+        x = calldataload c32
+        y = calldataload c64
+        a = copy x
+        b = copy y
+        result = add a b
+        out = copy result
+        cond = copy selector
+        switch cond {
+            0x0 => @ret_x
+            0x1 => @ret_y
+            default => @ret_sum
+        }
+    }
+    ret_x val1 {
+        buf1 = sallocany 32
+        mstore256 buf1 x
+        return buf1 c32
+    }
+    ret_y val2 {
+        buf2 = sallocany 32
+        mstore256 buf2 y
+        return buf2 c32
+    }
+    ret_sum val3 {
+        buf3 = sallocany 32
+        mstore256 buf3 val3
+        return buf3 c32
+    }
