@@ -12,7 +12,7 @@ license = "MIT"
 sensei-core = { path = "crates/sensei-core" }
 
 # Frontend Sub Crates
-neosen-parser = { path = "frontend/parser" }
+sensei-parser = { path = "frontend/parser" }
 
 # SIR Sub Crates
 sir-data = { path = "sir/crates/data" }

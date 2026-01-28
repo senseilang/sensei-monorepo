@@ -1,9 +1,9 @@
 [package]
-name = "neosen"
+name = "senseic"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
-neosen-parser.workspace = true
+sensei-parser.workspace = true
 bumpalo.workspace = true

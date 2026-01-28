@@ -1,6 +1,6 @@
 ## Project Overview
 
-Neosen is a compiler frontend for the Sensei programming language.
+Senseic is a compiler frontend for the Sensei programming language.
 
 ## Commands
 
@@ -22,7 +22,7 @@ Cargo workspace with general-purpose crates in `crates/` and frontend crates in 
     - `index.rs`: `X32` easily new-typed index 
     - `span.rs`: Range-like start, end with a more convenient API
     - `bigint.rs`: Arena allocated big int with parsing helpers
-- **neosen-parser** (`frontend/parser`):
+- **sensei-parser** (`frontend/parser`):
   - `lexer.rs`: Token lexer using the `logos` crate
   - `cst.rs`: Homogeneous syntax tree that stores well-formed nodes & errors
   - `parser.rs`: LSP-grade error resilient parser

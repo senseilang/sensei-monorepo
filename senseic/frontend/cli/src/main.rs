@@ -1,5 +1,5 @@
 use bumpalo::Bump;
-use neosen_parser::{
+use sensei_parser::{
     cst::display::DisplayCST,
     error_report::{ErrorCollector, LineIndex, format_error},
     lexer::Lexer,
