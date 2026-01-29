@@ -66,6 +66,15 @@ impl<'a, I, T> RelSlice<'a, I, T> {
         let relative = index.get().checked_sub(self.offset)?;
         self.data.get(relative as usize)
     }
+
+    /// Returns a `RelSlice` for a given span or range, preserving absolute indices.
+    pub fn index(&self, span: impl SpanLike<Idx = X32<I>>) -> RelSlice<'_, I, T> {
+        let start = span.start();
+        let end = span.end();
+        let rel_start = (start.get() - self.offset) as usize;
+        let rel_end = (end.get() - self.offset) as usize;
+        RelSlice::new(start, &self.data[rel_start..rel_end])
+    }
 }
 
 impl<I, T> std::ops::Index<X32<I>> for RelSlice<'_, I, T> {
@@ -187,6 +196,24 @@ impl<'a, I, T> RelSliceMut<'a, I, T> {
     #[inline]
     pub fn as_rel_slice(&self) -> RelSlice<'_, I, T> {
         RelSlice { offset: self.offset, data: self.data, _marker: PhantomData }
+    }
+
+    /// Returns a `RelSlice` for a given span or range, preserving absolute indices.
+    pub fn index(&self, span: impl SpanLike<Idx = X32<I>>) -> RelSlice<'_, I, T> {
+        let start = span.start();
+        let end = span.end();
+        let rel_start = (start.get() - self.offset) as usize;
+        let rel_end = (end.get() - self.offset) as usize;
+        RelSlice::new(start, &self.data[rel_start..rel_end])
+    }
+
+    /// Returns a `RelSliceMut` for a given span or range, preserving absolute indices.
+    pub fn index_mut(&mut self, span: impl SpanLike<Idx = X32<I>>) -> RelSliceMut<'_, I, T> {
+        let start = span.start();
+        let end = span.end();
+        let rel_start = (start.get() - self.offset) as usize;
+        let rel_end = (end.get() - self.offset) as usize;
+        RelSliceMut::new(start, &mut self.data[rel_start..rel_end])
     }
 }
 
