@@ -129,12 +129,14 @@ impl<T: IncIterable> Iterator for IncIterator<T> {
     }
 }
 
-pub trait SpanLike<T: Copy> {
-    fn start(&self) -> T;
-    fn end(&self) -> T;
+pub trait SpanLike {
+    type Idx: Copy;
+    fn start(&self) -> Self::Idx;
+    fn end(&self) -> Self::Idx;
 }
 
-impl<T: Copy> SpanLike<T> for Span<T> {
+impl<T: Copy> SpanLike for Span<T> {
+    type Idx = T;
     fn start(&self) -> T {
         self.start
     }
@@ -143,7 +145,8 @@ impl<T: Copy> SpanLike<T> for Span<T> {
     }
 }
 
-impl<T: Copy> SpanLike<T> for std::ops::Range<T> {
+impl<T: Copy> SpanLike for std::ops::Range<T> {
+    type Idx = T;
     fn start(&self) -> T {
         self.start
     }

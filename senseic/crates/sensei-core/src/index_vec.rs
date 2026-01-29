@@ -303,7 +303,7 @@ impl<I, T, A: Allocator> IndexVec<I, T, A> {
 
     /// Returns a `RelSlice` for the given span or range, preserving absolute indices.
     #[inline]
-    pub fn rel_slice(&self, span: impl SpanLike<X32<I>>) -> RelSlice<'_, I, T> {
+    pub fn rel_slice(&self, span: impl SpanLike<Idx = X32<I>>) -> RelSlice<'_, I, T> {
         let start = span.start();
         let end = span.end();
         RelSlice::new(start, &self.raw[start.to_usize()..end.to_usize()])
@@ -311,7 +311,7 @@ impl<I, T, A: Allocator> IndexVec<I, T, A> {
 
     /// Returns a `RelSliceMut` for the given span, preserving absolute indices.
     #[inline]
-    pub fn rel_slice_mut(&mut self, span: impl SpanLike<X32<I>>) -> RelSliceMut<'_, I, T> {
+    pub fn rel_slice_mut(&mut self, span: impl SpanLike<Idx = X32<I>>) -> RelSliceMut<'_, I, T> {
         let start = span.start();
         let end = span.end();
         RelSliceMut::new(start, &mut self.raw[start.to_usize()..end.to_usize()])
