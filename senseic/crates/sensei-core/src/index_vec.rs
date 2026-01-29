@@ -1,6 +1,10 @@
 use std::marker::PhantomData;
 
-use crate::{Span, index::X32, span::IncIterable};
+use crate::{
+    Span,
+    index::X32,
+    span::{IncIterable, SpanLike, ToUsize},
+};
 use allocator_api2::{
     alloc::{Allocator, Global},
     vec::Vec,
@@ -61,6 +65,15 @@ impl<'a, I, T> RelSlice<'a, I, T> {
     pub fn get(&self, index: X32<I>) -> Option<&'a T> {
         let relative = index.get().checked_sub(self.offset)?;
         self.data.get(relative as usize)
+    }
+
+    /// Returns a `RelSlice` for a given span or range, preserving absolute indices.
+    pub fn index(&self, span: impl SpanLike<Idx = X32<I>>) -> RelSlice<'_, I, T> {
+        let start = span.start();
+        let end = span.end();
+        let rel_start = (start.get() - self.offset) as usize;
+        let rel_end = (end.get() - self.offset) as usize;
+        RelSlice::new(start, &self.data[rel_start..rel_end])
     }
 }
 
@@ -184,6 +197,24 @@ impl<'a, I, T> RelSliceMut<'a, I, T> {
     pub fn as_rel_slice(&self) -> RelSlice<'_, I, T> {
         RelSlice { offset: self.offset, data: self.data, _marker: PhantomData }
     }
+
+    /// Returns a `RelSlice` for a given span or range, preserving absolute indices.
+    pub fn index(&self, span: impl SpanLike<Idx = X32<I>>) -> RelSlice<'_, I, T> {
+        let start = span.start();
+        let end = span.end();
+        let rel_start = (start.get() - self.offset) as usize;
+        let rel_end = (end.get() - self.offset) as usize;
+        RelSlice::new(start, &self.data[rel_start..rel_end])
+    }
+
+    /// Returns a `RelSliceMut` for a given span or range, preserving absolute indices.
+    pub fn index_mut(&mut self, span: impl SpanLike<Idx = X32<I>>) -> RelSliceMut<'_, I, T> {
+        let start = span.start();
+        let end = span.end();
+        let rel_start = (start.get() - self.offset) as usize;
+        let rel_end = (end.get() - self.offset) as usize;
+        RelSliceMut::new(start, &mut self.data[rel_start..rel_end])
+    }
 }
 
 impl<I, T> std::ops::Index<X32<I>> for RelSliceMut<'_, I, T> {
@@ -297,29 +328,20 @@ impl<I, T, A: Allocator> IndexVec<I, T, A> {
         self.next_idx()
     }
 
-    /// Returns a `RelSlice` for the given span, preserving absolute indices.
+    /// Returns a `RelSlice` for the given span or range, preserving absolute indices.
     #[inline]
-    pub fn rel_slice(&self, span: Span<X32<I>>) -> RelSlice<'_, I, T> {
-        RelSlice::new(span.start, &self.raw[span.usize_range()])
+    pub fn rel_slice(&self, span: impl SpanLike<Idx = X32<I>>) -> RelSlice<'_, I, T> {
+        let start = span.start();
+        let end = span.end();
+        RelSlice::new(start, &self.raw[start.to_usize()..end.to_usize()])
     }
 
     /// Returns a `RelSliceMut` for the given span, preserving absolute indices.
     #[inline]
-    pub fn rel_slice_mut(&mut self, span: Span<X32<I>>) -> RelSliceMut<'_, I, T> {
-        let start = span.start;
-        RelSliceMut::new(start, &mut self.raw[span.usize_range()])
-    }
-
-    /// Returns a `RelSlice` for the given range, preserving absolute indices.
-    #[inline]
-    pub fn rel_slice_range(&self, range: std::ops::Range<X32<I>>) -> RelSlice<'_, I, T> {
-        self.rel_slice(Span::new(range.start, range.end))
-    }
-
-    /// Returns a `RelSliceMut` for the given range, preserving absolute indices.
-    #[inline]
-    pub fn rel_slice_range_mut(&mut self, range: std::ops::Range<X32<I>>) -> RelSliceMut<'_, I, T> {
-        self.rel_slice_mut(Span::new(range.start, range.end))
+    pub fn rel_slice_mut(&mut self, span: impl SpanLike<Idx = X32<I>>) -> RelSliceMut<'_, I, T> {
+        let start = span.start();
+        let end = span.end();
+        RelSliceMut::new(start, &mut self.raw[start.to_usize()..end.to_usize()])
     }
 
     /// Returns a `RelSlice` for the entire Vec, preserving absolute indices.

@@ -43,6 +43,12 @@ impl<T> Span<T> {
     }
 }
 
+impl<T: Eq> Span<T> {
+    pub fn is_empty(&self) -> bool {
+        self.start == self.end
+    }
+}
+
 impl<M> Span<X32<M>> {
     pub const fn dummy() -> Self {
         Self { start: X32::MAX, end: X32::ZERO }
@@ -120,5 +126,31 @@ impl<T: IncIterable> Iterator for IncIterator<T> {
             return None;
         }
         Some(self.start.get_and_inc())
+    }
+}
+
+pub trait SpanLike {
+    type Idx: Copy;
+    fn start(&self) -> Self::Idx;
+    fn end(&self) -> Self::Idx;
+}
+
+impl<T: Copy> SpanLike for Span<T> {
+    type Idx = T;
+    fn start(&self) -> T {
+        self.start
+    }
+    fn end(&self) -> T {
+        self.end
+    }
+}
+
+impl<T: Copy> SpanLike for std::ops::Range<T> {
+    type Idx = T;
+    fn start(&self) -> T {
+        self.start
+    }
+    fn end(&self) -> T {
+        self.end
     }
 }

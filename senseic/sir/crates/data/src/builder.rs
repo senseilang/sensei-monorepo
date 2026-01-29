@@ -1,7 +1,6 @@
 use crate::*;
 use alloy_primitives::U256;
 use sensei_core::span::IncIterable;
-use std::ops::Range;
 
 #[derive(Debug, thiserror::Error)]
 pub enum BuildError {
@@ -76,11 +75,11 @@ impl EthIRBuilder {
         self.next_alloc_id.get_and_inc()
     }
 
-    pub fn alloc_locals(&mut self, locals: &[LocalId]) -> Range<LocalIndex> {
+    pub fn alloc_locals(&mut self, locals: &[LocalId]) -> Span<LocalIndex> {
         let start = self.locals.len_idx();
         self.locals.as_mut_vec().extend_from_slice(locals);
         let end = self.locals.len_idx();
-        start..end
+        Span::new(start, end)
     }
 
     pub fn get_func(&self, func: FunctionId) -> Option<&Function> {
@@ -132,9 +131,9 @@ impl<'ir> FunctionBuilder<'ir> {
         let next_local = self.ir_builder.locals.next_idx();
         BasicBlockBuilder {
             fn_builder: self,
-            operations: next_op..next_op,
-            inputs: next_local..next_local,
-            outputs: next_local..next_local,
+            operations: Span::new(next_op, next_op),
+            inputs: Span::new(next_local, next_local),
+            outputs: Span::new(next_local, next_local),
         }
     }
 
@@ -197,9 +196,9 @@ impl<'ir> AsMut<EthIRBuilder> for FunctionBuilder<'ir> {
 #[must_use]
 pub struct BasicBlockBuilder<'func, 'ir: 'func> {
     pub fn_builder: &'func mut FunctionBuilder<'ir>,
-    operations: Range<OperationIndex>,
-    inputs: Range<LocalIndex>,
-    outputs: Range<LocalIndex>,
+    operations: Span<OperationIndex>,
+    inputs: Span<LocalIndex>,
+    outputs: Span<LocalIndex>,
 }
 
 impl<'func, 'ir: 'func> BasicBlockBuilder<'func, 'ir> {
@@ -215,7 +214,7 @@ impl<'func, 'ir: 'func> BasicBlockBuilder<'func, 'ir> {
     }
 
     pub fn set_inputs(&mut self, new_inputs: &[LocalId]) {
-        overwrite_range_via_copy(
+        overwrite_span_via_copy(
             &mut self.inputs,
             &mut self.fn_builder.ir_builder.locals,
             new_inputs,
@@ -223,7 +222,7 @@ impl<'func, 'ir: 'func> BasicBlockBuilder<'func, 'ir> {
     }
 
     pub fn set_outputs(&mut self, new_outputs: &[LocalId]) {
-        overwrite_range_via_copy(
+        overwrite_span_via_copy(
             &mut self.outputs,
             &mut self.fn_builder.ir_builder.locals,
             new_outputs,
@@ -290,28 +289,28 @@ impl<'ctx, C: AsMut<EthIRBuilder>> SwitchBuilder<'ctx, C> {
     }
 }
 
-fn overwrite_range_via_copy<M, T: Copy>(
-    range: &mut Range<X32<M>>,
+fn overwrite_span_via_copy<M, T: Copy>(
+    span: &mut Span<X32<M>>,
     backing: &mut IndexVec<M, T>,
     new_values: &[T],
 ) {
-    let len = (range.end.get() - range.start.get()) as usize;
+    let len = (span.end.get() - span.start.get()) as usize;
     if len >= new_values.len() {
-        backing[range.clone()][..new_values.len()].copy_from_slice(new_values);
-        range.end = range.start + new_values.len() as u32;
+        backing[*span][..new_values.len()].copy_from_slice(new_values);
+        span.end = span.start + new_values.len() as u32;
         return;
     }
 
-    if range.end == backing.len_idx() {
-        backing[range.clone()].clone_from_slice(&new_values[..len]);
+    if span.end == backing.len_idx() {
+        backing[*span].clone_from_slice(&new_values[..len]);
         backing.as_mut_vec().extend_from_slice(&new_values[len..]);
-        range.end = backing.len_idx();
+        span.end = backing.len_idx();
         return;
     }
 
-    range.start = backing.len_idx();
+    span.start = backing.len_idx();
     backing.as_mut_vec().extend_from_slice(new_values);
-    range.end = backing.len_idx();
+    span.end = backing.len_idx();
 }
 
 #[cfg(test)]

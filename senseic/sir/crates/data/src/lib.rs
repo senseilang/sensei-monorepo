@@ -4,7 +4,7 @@ pub mod operation;
 
 pub use crate::{index::*, operation::Operation};
 use alloy_primitives::U256;
-use std::{fmt, ops::Range};
+use std::fmt;
 
 /// Implemented in a data oriented way. Instead of each basic block and function holding its own
 /// vector of items they're all stored contiguously in the top level program
@@ -31,11 +31,11 @@ pub struct EthIRProgram {
 
 impl EthIRProgram {
     /// Get the byte range for a data segment
-    pub fn get_segment_range(&self, id: DataId) -> Range<DataOffset> {
+    pub fn get_segment_span(&self, id: DataId) -> Span<DataOffset> {
         let start = self.data_segments_start[id];
         match self.data_segments_start.get(id + 1) {
-            Some(&end) => start..end,
-            None => start..self.data_bytes.len_idx(),
+            Some(&end) => Span::new(start, end),
+            None => Span::new(start, self.data_bytes.len_idx()),
         }
     }
 }
@@ -81,7 +81,7 @@ pub fn display_program(ir: &EthIRProgram) -> String {
         for (segment_id, _) in ir.data_segments_start.enumerate_idx() {
             write!(&mut output, "data .{segment_id} ").unwrap();
 
-            let range = ir.get_segment_range(segment_id);
+            let range = ir.get_segment_span(segment_id);
             write!(&mut output, "0x").unwrap();
             for i in range.start.get()..range.end.get() {
                 write!(&mut output, "{:02x}", ir.data_bytes[DataOffset::new(i)]).unwrap();
@@ -115,7 +115,7 @@ impl Function {
     }
 
     pub fn get_inputs(&self, basic_blocks: &IndexVec<BasicBlockIdMarker, BasicBlock>) -> u32 {
-        let inputs = basic_blocks[self.entry()].inputs.clone();
+        let inputs = basic_blocks[self.entry()].inputs;
         inputs.end - inputs.start
     }
 
@@ -127,9 +127,9 @@ impl Function {
 #[derive(Debug, Clone)]
 pub struct BasicBlock {
     /// Input locals.
-    pub inputs: Range<LocalIndex>,
-    pub outputs: Range<LocalIndex>,
-    pub operations: Range<OperationIndex>,
+    pub inputs: Span<LocalIndex>,
+    pub outputs: Span<LocalIndex>,
+    pub operations: Span<OperationIndex>,
     pub control: Control,
 }
 
@@ -151,7 +151,7 @@ impl BasicBlock {
 
         // Display inputs
         if !self.inputs.is_empty() {
-            for local in &ir.locals[self.inputs.clone()] {
+            for local in &ir.locals[self.inputs] {
                 write!(f, " ${local}")?;
             }
         }
@@ -159,7 +159,7 @@ impl BasicBlock {
         // Display outputs
         if !self.outputs.is_empty() {
             write!(f, " ->")?;
-            for local in &ir.locals[self.outputs.clone()] {
+            for local in &ir.locals[self.outputs] {
                 write!(f, " ${local}")?;
             }
         }
@@ -167,7 +167,7 @@ impl BasicBlock {
         writeln!(f, " {{")?;
 
         // Display operations
-        for op in &ir.operations[self.operations.clone()] {
+        for op in &ir.operations[self.operations] {
             write!(f, "        ")?;
             op.op_fmt(f, ir)?;
             writeln!(f)?;
@@ -217,16 +217,14 @@ impl Cases {
         &self,
         ir: &'ir EthIRProgram,
     ) -> RelSlice<'ir, LargeConstIdMarker, U256> {
-        ir.large_consts
-            .rel_slice_range(self.values_start_id..self.values_start_id + self.cases_count)
+        ir.large_consts.rel_slice(self.values_start_id..self.values_start_id + self.cases_count)
     }
 
     pub fn get_bb_ids<'ir>(
         &self,
         ir: &'ir EthIRProgram,
     ) -> RelSlice<'ir, CasesBasicBlocksIndexMarker, BasicBlockId> {
-        ir.cases_bb_ids
-            .rel_slice_range(self.targets_start_id..self.targets_start_id + self.cases_count)
+        ir.cases_bb_ids.rel_slice(self.targets_start_id..self.targets_start_id + self.cases_count)
     }
 }
 

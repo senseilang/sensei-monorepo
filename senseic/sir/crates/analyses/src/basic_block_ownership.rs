@@ -88,7 +88,7 @@ impl BasicBlockOwnershipAndReachability {
             for (segment_id, _) in program.data_segments_start.enumerate_idx() {
                 write!(&mut output, "data .{segment_id} ").unwrap();
 
-                let range = program.get_segment_range(segment_id);
+                let range = program.get_segment_span(segment_id);
                 write!(&mut output, "0x").unwrap();
                 for i in range.start.get()..range.end.get() {
                     write!(&mut output, "{:02x}", program.data_bytes[DataOffset::new(i)]).unwrap();

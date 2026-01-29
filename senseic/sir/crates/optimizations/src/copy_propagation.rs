@@ -70,8 +70,8 @@ pub fn run(program: &mut EthIRProgram) {
     for bb in program.basic_blocks.iter_mut() {
         copy_map.clear();
 
-        let ops_range = bb.operations.clone();
-        for op in &mut program.operations[ops_range.clone()] {
+        let ops_span = bb.operations;
+        for op in &mut program.operations[ops_span] {
             if let Operation::SetCopy(InlineOperands { ins: [src], outs: [dst] }) = op {
                 let resolved_src = copy_map.get(src).unwrap_or(src);
                 let prev = copy_map.insert(*dst, *resolved_src);
@@ -81,11 +81,11 @@ pub fn run(program: &mut EthIRProgram) {
 
         let locals = program.locals.as_rel_slice_mut();
         let mut replacer = CopyReplacer { copy_map: &copy_map, locals };
-        for op in &mut program.operations[ops_range] {
+        for op in &mut program.operations[ops_span] {
             op.visit_data_mut(&mut replacer);
         }
 
-        for local in &mut program.locals[bb.outputs.clone()] {
+        for local in &mut program.locals[bb.outputs] {
             replace_if_copied(local, &copy_map);
         }
 

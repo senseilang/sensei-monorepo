@@ -223,7 +223,7 @@ pub fn ir_to_bytecode(ir: &EthIRProgram, result: &mut Vec<u8>) {
     }
 
     for data_id in sensei_core::Span::new(DataId::ZERO, ir.data_segments_start.len_idx()).iter() {
-        let bytes = &ir.data_bytes[ir.get_segment_range(data_id)];
+        let bytes = &ir.data_bytes[ir.get_segment_span(data_id)];
         let mark = translator.mark_map.get_data_mark(data_id);
         translator.asm.push_mark(mark);
         translator.asm.push_data(bytes);
