@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 sir-data.workspace = true
+alloy-primitives.workspace = true
 
 [dev-dependencies]
 sir-parser.workspace = true

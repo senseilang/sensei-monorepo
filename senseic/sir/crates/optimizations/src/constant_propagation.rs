@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 
+use alloy_primitives::U256;
 use sir_data::{
-    BasicBlockId, EthIRProgram, LargeConstId, LocalId, LocalIdMarker, LocalIndexMarker, Operation,
-    RelSliceMut, Span, X32,
+    BasicBlockId, EthIRProgram, IndexVec, LargeConstId, LargeConstIdMarker, LocalId, LocalIdMarker,
+    LocalIndexMarker, Operation, RelSliceMut, Span, X32,
     operation::{
         AllocatedIns, InlineOperands, InternalCallData, MemoryLoadData, MemoryStoreData,
         OpVisitorMut, SetDataOffsetData, SetLargeConstData, SetSmallConstData, StaticAllocData,
@@ -239,7 +240,76 @@ pub fn run(program: &mut EthIRProgram) {
     for bb in program.basic_blocks.iter() {
         for op in &mut program.operations[bb.operations] {
             op.visit_data_mut(&mut replacer);
+            try_fold(op, &constant_map, &mut program.large_consts);
         }
+    }
+}
+
+fn get_const_value(
+    local: &LocalId,
+    constant_map: &HashMap<LocalId, ConstValue>,
+    large_consts: &IndexVec<LargeConstIdMarker, U256>,
+) -> Option<U256> {
+    match constant_map.get(local)? {
+        ConstValue::SmallConst(v) => Some(U256::from(*v)),
+        ConstValue::LargeConst(id) => Some(large_consts[*id]),
+        _ => None,
+    }
+}
+
+fn get_binary_const_values(
+    a: &LocalId,
+    b: &LocalId,
+    constant_map: &HashMap<LocalId, ConstValue>,
+    large_consts: &IndexVec<LargeConstIdMarker, U256>,
+) -> Option<(U256, U256)> {
+    let va = get_const_value(a, constant_map, large_consts)?;
+    let vb = get_const_value(b, constant_map, large_consts)?;
+    Some((va, vb))
+}
+
+fn try_fold(
+    op: &mut Operation,
+    constant_map: &HashMap<LocalId, ConstValue>,
+    large_consts: &mut IndexVec<LargeConstIdMarker, U256>,
+) {
+    match op {
+        Operation::Add(InlineOperands { ins: [a, b], outs: [out] }) => {
+            if let Some((va, vb)) = get_binary_const_values(a, b, constant_map, large_consts) {
+                let result = va.wrapping_add(vb);
+                *op = if let Ok(small) = u32::try_from(result) {
+                    Operation::SetSmallConst(SetSmallConstData { sets: *out, value: small })
+                } else {
+                    let id = large_consts.push(result);
+                    Operation::SetLargeConst(SetLargeConstData { sets: *out, value: id })
+                };
+            }
+        }
+        Operation::Mul(InlineOperands { ins: [a, b], outs: [out] }) => todo!(),
+        Operation::Sub(InlineOperands { ins: [a, b], outs: [out] }) => todo!(),
+        Operation::Div(InlineOperands { ins: [a, b], outs: [out] }) => todo!(),
+        Operation::SDiv(InlineOperands { ins: [a, b], outs: [out] }) => todo!(),
+        Operation::Mod(InlineOperands { ins: [a, b], outs: [out] }) => todo!(),
+        Operation::SMod(InlineOperands { ins: [a, b], outs: [out] }) => todo!(),
+        Operation::AddMod(AllocatedIns { ins_start, outs: [out] }) => todo!(),
+        Operation::MulMod(AllocatedIns { ins_start, outs: [out] }) => todo!(),
+        Operation::Exp(InlineOperands { ins: [a, b], outs: [out] }) => todo!(),
+        Operation::SignExtend(InlineOperands { ins: [a, b], outs: [out] }) => todo!(),
+        Operation::Lt(InlineOperands { ins: [a, b], outs: [out] }) => todo!(),
+        Operation::Gt(InlineOperands { ins: [a, b], outs: [out] }) => todo!(),
+        Operation::SLt(InlineOperands { ins: [a, b], outs: [out] }) => todo!(),
+        Operation::SGt(InlineOperands { ins: [a, b], outs: [out] }) => todo!(),
+        Operation::Eq(InlineOperands { ins: [a, b], outs: [out] }) => todo!(),
+        Operation::And(InlineOperands { ins: [a, b], outs: [out] }) => todo!(),
+        Operation::Or(InlineOperands { ins: [a, b], outs: [out] }) => todo!(),
+        Operation::Xor(InlineOperands { ins: [a, b], outs: [out] }) => todo!(),
+        Operation::Byte(InlineOperands { ins: [a, b], outs: [out] }) => todo!(),
+        Operation::Shl(InlineOperands { ins: [a, b], outs: [out] }) => todo!(),
+        Operation::Shr(InlineOperands { ins: [a, b], outs: [out] }) => todo!(),
+        Operation::Sar(InlineOperands { ins: [a, b], outs: [out] }) => todo!(),
+        Operation::Not(InlineOperands { ins: [a], outs: [out] }) => todo!(),
+        Operation::IsZero(InlineOperands { ins: [a], outs: [out] }) => todo!(),
+        _ => {}
     }
 }
 
