@@ -31,22 +31,17 @@ enum ConstValue {
 fn track_constant(
     constant_map: &mut HashMap<LocalId, ConstValue>,
     first_occurence: &mut HashMap<ConstValue, LocalId>,
-    replacements: &mut HashMap<LocalId, LocalId>,
     idx: LocalId,
     value: ConstValue,
 ) {
     constant_map.insert(idx, value.clone());
-    match first_occurence.get(&value) {
-        Some(first) => replacements.insert(idx, *first),
-        None => first_occurence.insert(value, idx),
-    };
+    first_occurence.entry(value).or_insert(idx);
 }
 
 fn track_constant_definition(
     program: &EthIRProgram,
     constant_map: &mut HashMap<LocalId, ConstValue>,
     first_occurence: &mut HashMap<ConstValue, LocalId>,
-    replacements: &mut HashMap<LocalId, LocalId>,
     predecessors: &mut HashMap<BasicBlockId, Vec<BasicBlockId>>,
 ) {
     for (id, bb) in program.basic_blocks.enumerate_idx() {
@@ -56,139 +51,49 @@ fn track_constant_definition(
         for op in &program.operations[bb.operations] {
             match op {
                 Operation::Address(InlineOperands { ins: [], outs: [out] }) => {
-                    track_constant(
-                        constant_map,
-                        first_occurence,
-                        replacements,
-                        *out,
-                        ConstValue::Address,
-                    );
+                    track_constant(constant_map, first_occurence, *out, ConstValue::Address);
                 }
                 Operation::Origin(InlineOperands { ins: [], outs: [out] }) => {
-                    track_constant(
-                        constant_map,
-                        first_occurence,
-                        replacements,
-                        *out,
-                        ConstValue::Origin,
-                    );
+                    track_constant(constant_map, first_occurence, *out, ConstValue::Origin);
                 }
                 Operation::Caller(InlineOperands { ins: [], outs: [out] }) => {
-                    track_constant(
-                        constant_map,
-                        first_occurence,
-                        replacements,
-                        *out,
-                        ConstValue::Caller,
-                    );
+                    track_constant(constant_map, first_occurence, *out, ConstValue::Caller);
                 }
                 Operation::CallValue(InlineOperands { ins: [], outs: [out] }) => {
-                    track_constant(
-                        constant_map,
-                        first_occurence,
-                        replacements,
-                        *out,
-                        ConstValue::CallValue,
-                    );
+                    track_constant(constant_map, first_occurence, *out, ConstValue::CallValue);
                 }
                 Operation::CallDataSize(InlineOperands { ins: [], outs: [out] }) => {
-                    track_constant(
-                        constant_map,
-                        first_occurence,
-                        replacements,
-                        *out,
-                        ConstValue::CallDataSize,
-                    );
+                    track_constant(constant_map, first_occurence, *out, ConstValue::CallDataSize);
                 }
                 Operation::CodeSize(InlineOperands { ins: [], outs: [out] }) => {
-                    track_constant(
-                        constant_map,
-                        first_occurence,
-                        replacements,
-                        *out,
-                        ConstValue::CodeSize,
-                    );
+                    track_constant(constant_map, first_occurence, *out, ConstValue::CodeSize);
                 }
                 Operation::GasPrice(InlineOperands { ins: [], outs: [out] }) => {
-                    track_constant(
-                        constant_map,
-                        first_occurence,
-                        replacements,
-                        *out,
-                        ConstValue::GasPrice,
-                    );
+                    track_constant(constant_map, first_occurence, *out, ConstValue::GasPrice);
                 }
                 Operation::Coinbase(InlineOperands { ins: [], outs: [out] }) => {
-                    track_constant(
-                        constant_map,
-                        first_occurence,
-                        replacements,
-                        *out,
-                        ConstValue::Coinbase,
-                    );
+                    track_constant(constant_map, first_occurence, *out, ConstValue::Coinbase);
                 }
                 Operation::Timestamp(InlineOperands { ins: [], outs: [out] }) => {
-                    track_constant(
-                        constant_map,
-                        first_occurence,
-                        replacements,
-                        *out,
-                        ConstValue::Timestamp,
-                    );
+                    track_constant(constant_map, first_occurence, *out, ConstValue::Timestamp);
                 }
                 Operation::Number(InlineOperands { ins: [], outs: [out] }) => {
-                    track_constant(
-                        constant_map,
-                        first_occurence,
-                        replacements,
-                        *out,
-                        ConstValue::Number,
-                    );
+                    track_constant(constant_map, first_occurence, *out, ConstValue::Number);
                 }
                 Operation::ChainId(InlineOperands { ins: [], outs: [out] }) => {
-                    track_constant(
-                        constant_map,
-                        first_occurence,
-                        replacements,
-                        *out,
-                        ConstValue::ChainId,
-                    );
+                    track_constant(constant_map, first_occurence, *out, ConstValue::ChainId);
                 }
                 Operation::BaseFee(InlineOperands { ins: [], outs: [out] }) => {
-                    track_constant(
-                        constant_map,
-                        first_occurence,
-                        replacements,
-                        *out,
-                        ConstValue::BaseFee,
-                    );
+                    track_constant(constant_map, first_occurence, *out, ConstValue::BaseFee);
                 }
                 Operation::BlobBaseFee(InlineOperands { ins: [], outs: [out] }) => {
-                    track_constant(
-                        constant_map,
-                        first_occurence,
-                        replacements,
-                        *out,
-                        ConstValue::BlobBaseFee,
-                    );
+                    track_constant(constant_map, first_occurence, *out, ConstValue::BlobBaseFee);
                 }
                 Operation::SetSmallConst(SetSmallConstData { sets, value }) => {
-                    track_constant(
-                        constant_map,
-                        first_occurence,
-                        replacements,
-                        *sets,
-                        ConstValue::SmallConst(*value),
-                    );
+                    track_constant(constant_map, first_occurence, *sets, ConstValue::SmallConst(*value));
                 }
                 Operation::SetLargeConst(SetLargeConstData { sets, value }) => {
-                    track_constant(
-                        constant_map,
-                        first_occurence,
-                        replacements,
-                        *sets,
-                        ConstValue::LargeConst(*value),
-                    );
+                    track_constant(constant_map, first_occurence, *sets, ConstValue::LargeConst(*value));
                 }
                 _ => {}
             }
@@ -200,8 +105,6 @@ fn update_inputs(
     program: &EthIRProgram,
     predecessors: &HashMap<BasicBlockId, Vec<BasicBlockId>>,
     constant_map: &mut HashMap<LocalId, ConstValue>,
-    first_occurence: &mut HashMap<ConstValue, LocalId>,
-    replacements: &mut HashMap<LocalId, LocalId>,
 ) {
     for (bb_id, pred_blocks_ids) in predecessors {
         let bb = &program.basic_blocks[*bb_id];
@@ -234,8 +137,6 @@ fn update_inputs(
 
             if !is_unknown {
                 if let Some(c) = const_value {
-                    let first = first_occurence.get(&c).expect("constant should exist");
-                    replacements.insert(*input, *first);
                     constant_map.insert(*input, c);
                 }
             }
@@ -246,24 +147,16 @@ fn update_inputs(
 pub fn run(program: &mut EthIRProgram) {
     let mut constant_map: HashMap<LocalId, ConstValue> = HashMap::new();
     let mut first_occurence: HashMap<ConstValue, LocalId> = HashMap::new();
-    let mut replacements: HashMap<LocalId, LocalId> = HashMap::new();
     let mut predecessors: HashMap<BasicBlockId, Vec<BasicBlockId>> = HashMap::new();
 
     track_constant_definition(
         program,
         &mut constant_map,
         &mut first_occurence,
-        &mut replacements,
         &mut predecessors,
     );
 
-    update_inputs(
-        program,
-        &predecessors,
-        &mut constant_map,
-        &mut first_occurence,
-        &mut replacements,
-    );
+    update_inputs(program, &predecessors, &mut constant_map);
 
     let locals = program.locals.as_rel_slice_mut();
     let mut replacer =
